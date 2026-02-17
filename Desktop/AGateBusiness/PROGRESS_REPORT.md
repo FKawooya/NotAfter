@@ -21,6 +21,9 @@
 | J  | v1 Release Prep (Repo Cleanup) | **COMPLETE** | — | Removed 24 internal docs, scrubbed IPs, added CI, .gitignore, CHANGELOG, ROADMAP |
 | K  | Dev Server Code Sync | **COMPLETE** | 10+ | Recovered issuer DB/crypto/models, synced go.mod/go.sum/Dockerfiles across all services |
 | L  | Use Case Validation | **COMPLETE** | — | Validated 42/42 agent use cases (32 full, 10 partial) against AgentGate capabilities |
+| M  | Coverage Roadmap + Tier 1 Implementation | **COMPLETE** | 36+ | SDK local ops (3 SDKs), git hooks, CI integration, audit/policy extensions |
+| N  | Tier 2 Runtime Wrapper (Scaffold) | **COMPLETE** | 10 | agentgate-run CLI, passport loader, policy engine, audit reporter, sandbox interface |
+| O  | Tier 3 eBPF Observer (Design) | **COMPLETE** | 7 | 1064-line design doc, Go scaffold with interfaces for consumer/procmap/enricher |
 
 ---
 
@@ -306,6 +309,79 @@ Validated AgentGate applicability against 42 real-world agent use cases across 4
 
 ---
 
+## Workstream M: Coverage Roadmap + Tier 1 Implementation — COMPLETE
+
+### Coverage Roadmap Document
+- `COVERAGE_ROADMAP.md` (AGateBusiness) — Full tier breakdown, capability types, SDK specs, testing strategy
+
+### Foundation (Audit + Policy)
+- Extended `src/audit/app/models.py` — `LocalOpEntryIn`, `LocalOpEntryOut` models
+- Extended `src/audit/app/database.py` — `local_op_log` table with JSONB details, immutability triggers
+- Extended `src/audit/app/routes/log.py` — `/log/ops` and `/log/ops/single` endpoints
+- Extended `src/audit/app/routes/query.py` — `/query/ops` endpoint with operation/policy filters
+- Extended `src/proxy/internal/policy/policy.go` — `HostRule` type, `EvaluateHostOp()` function
+
+### SDK Local Ops Modules (Tier 1)
+- **Python** — `sdks/python/src/agentgate/local.py` (535 lines, 26 tests)
+  - `LocalOpsClient`, `ShellResult`, `HostPolicy`, `CapabilityError`, `PolicyDeniedError`
+- **TypeScript** — `sdks/typescript/src/local.ts` (543 lines, 28 tests)
+  - `LocalOpsClient`, `ShellResult`, `HostPolicy`, `HostRule`
+- **Go** — `agents/shared/localops/` (773 lines, 12 tests)
+  - `client.go`, `policy.go`, `client_test.go`
+
+### Git Hooks + CI (Tier 1.5)
+- `scripts/hooks/pre-commit` — Passport validation for git:commit capability
+- `scripts/hooks/pre-push` — Passport validation for git:push + force push policy
+- `scripts/hooks/README.md` — Installation and configuration docs
+- `.github/workflows/verify-agent.yml` — Reusable workflow for agent identity on PRs
+- Updated `.github/workflows/ci.yml` — Added verify-agent job
+
+### Commits
+- `bd2d6e5` — Audit + policy foundation
+- `eabddc2` — SDK local ops (3 SDKs, 3,895 lines)
+- `3d459fe` — Git hooks + CI (630 lines)
+
+---
+
+## Workstream N: Tier 2 Runtime Wrapper (Scaffold) — COMPLETE
+
+**Directory:** `C:\Users\asdf\Desktop\AGate\runtime\`
+
+### Files (10)
+- `go.mod` — Module definition
+- `cmd/agentgate-run/main.go` — CLI entry point with flag parsing
+- `internal/config/config.go` — Flag parsing, memory size parsing, validation
+- `internal/passport/passport.go` — State file loading, JWT claim extraction
+- `internal/policy/policy.go` — Host policy loading
+- `internal/reporter/reporter.go` — Audit service client
+- `internal/runner/runner.go` — Process launcher with signal forwarding
+- `internal/sandbox/sandbox.go` — Sandbox interface + NoopSandbox
+- `internal/sandbox/sandbox_linux.go` — Linux stub (build-tagged)
+- `README.md` — Usage, architecture, current status
+
+### Commit
+- `e5113f0` — Tier 2 scaffold (1,378 lines)
+
+---
+
+## Workstream O: Tier 3 eBPF Observer (Design) — COMPLETE
+
+**Directory:** `C:\Users\asdf\Desktop\AGate\observer\`
+
+### Files (7)
+- `DESIGN.md` — 1,064-line design document (10 sections + appendices)
+- `go.mod` — Module definition
+- `cmd/agentgate-observer/main.go` — Entry point stub
+- `internal/consumer/consumer.go` — Ring buffer consumer interfaces
+- `internal/procmap/procmap.go` — PID→Agent mapper interfaces
+- `internal/enricher/enricher.go` — Event enrichment + policy evaluation
+- `bpf/README.md` — BPF C source directory guide
+
+### Commit
+- `b581ebc` — Tier 3 design + scaffold (1,435 lines)
+
+---
+
 ## Key Reference Files (for resume context)
 
 ### Business Documents (C:\Users\asdf\Desktop\AGateBusiness\)
@@ -333,6 +409,11 @@ Validated AgentGate applicability against 42 real-world agent use cases across 4
 - CrewAI Integration: `integrations/crewai/` (new)
 - TypeScript SDK: `sdks/typescript/` (new)
 - CNCF Application: `cncf/` in AGateBusiness (new)
+- Coverage Roadmap: `COVERAGE_ROADMAP.md` in AGateBusiness (new)
+- SDK Local Ops: `sdks/python/src/agentgate/local.py`, `sdks/typescript/src/local.ts`, `agents/shared/localops/` (new)
+- Git Hooks: `scripts/hooks/` (new)
+- Runtime Wrapper: `runtime/` (new, Tier 2 scaffold)
+- eBPF Observer: `observer/` (new, Tier 3 design)
 
 ---
 
