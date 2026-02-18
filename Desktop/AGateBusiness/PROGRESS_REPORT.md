@@ -1,7 +1,7 @@
 # AgentGate — Development Progress Report
 
 > Auto-maintained for continuity across sessions/reboots.
-> Last updated: 2026-02-17 (session 7)
+> Last updated: 2026-02-17 (session 8)
 
 ---
 
@@ -24,6 +24,7 @@
 | M  | Coverage Roadmap + Tier 1 Implementation | **COMPLETE** | 36+ | SDK local ops (3 SDKs), git hooks, CI integration, audit/policy extensions |
 | N  | Tier 2 Runtime Wrapper (Scaffold) | **COMPLETE** | 10 | agentgate-run CLI, passport loader, policy engine, audit reporter, sandbox interface |
 | O  | Tier 3 eBPF Observer (Design) | **COMPLETE** | 7 | 1064-line design doc, Go scaffold with interfaces for consumer/procmap/enricher |
+| P  | ACC Telemetry — Local Ops | **COMPLETE** | 17 | Full local ops visibility in ACC: backend API, frontend types/hooks/components, dashboard integration |
 
 ---
 
@@ -379,6 +380,45 @@ Validated AgentGate applicability against 42 real-world agent use cases across 4
 
 ### Commit
 - `b581ebc` — Tier 3 design + scaffold (1,435 lines)
+
+---
+
+## Workstream P: ACC Telemetry — Local Ops — COMPLETE
+
+**Directory:** `C:\Users\asdf\Desktop\AGate\acc\`
+
+Extended ACC to show full local operations telemetry alongside existing HTTP audit data. Previously ACC had zero awareness of local operations (file access, shell execution, git operations).
+
+### Backend Changes (Go)
+- `internal/models/models.go` — Added `LocalOpEntry` and `LocalOpsStats` types
+- `internal/upstream/audit.go` — Added `QueryLocalOps()` and `GetLocalOpsStats()` upstream methods
+- `internal/api/audit.go` — Added `handleLocalOps` and `handleLocalOpsStats` handlers
+- `internal/api/agents.go` — Added `handleLocalOps` (per-agent local ops)
+- `internal/api/router.go` — Registered `GET /api/audit/ops`, `GET /api/audit/ops/stats`, `GET /api/agents/{id}/ops`
+- `internal/api/events.go` — Extended event classification for local op denials, shell executions, git pushes
+
+### Frontend Changes (React/TypeScript)
+- `frontend/src/api/types.ts` — Added `LocalOpEntry` and `LocalOpsStats` interfaces
+- `frontend/src/api/client.ts` — Added `queryLocalOps()`, `localOpsStats()`, `agentLocalOps()` API methods
+- `frontend/src/api/hooks.ts` — Added `useLocalOps`, `useLocalOpsStats`, `useAgentLocalOps` hooks
+- `frontend/src/api/useAgentDetail.ts` — Extended with local ops stats computation
+- `frontend/src/components/audit/LocalOpsTable.tsx` — **New** — Color-coded operation table with expand details
+- `frontend/src/components/audit/LocalOpsFilters.tsx` — **New** — Operation type, decision, date range filters
+- `frontend/src/components/dashboard/LocalOpsActivityFeed.tsx` — **New** — Live local ops feed for dashboard
+- `frontend/src/pages/AuditLog.tsx` — Added "Local Operations" tab alongside "HTTP Audit" tab
+- `frontend/src/pages/AgentDetailPage.tsx` — Added "Local Ops" tab, stats row with ops count/denied, ops breakdown chart
+- `frontend/src/pages/Dashboard.tsx` — Added LocalOpsActivityFeed to dashboard sidebar
+- `frontend/src/components/dashboard/StatsCards.tsx` — Added "Local Ops" count card, combined denied count
+
+### New API Endpoints
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/audit/ops` | Query local ops with filters (operation, agent_id, policy_decision, date range) |
+| GET | `/api/audit/ops/stats` | Aggregate local ops statistics |
+| GET | `/api/agents/{id}/ops` | Local ops filtered by agent ID |
+
+### Commit
+- `067d596` — ACC local ops telemetry (17 files, 819 lines changed)
 
 ---
 
