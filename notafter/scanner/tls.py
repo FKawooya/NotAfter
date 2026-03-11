@@ -8,8 +8,10 @@ import ssl
 from dataclasses import dataclass, field
 
 from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa, ed25519, ed448, dsa
+
+from notafter.pqc.oids import lookup_oid
 
 
 @dataclass
@@ -92,7 +94,7 @@ def _parse_cert(cert: x509.Certificate) -> CertInfo:
         not_after=cert.not_valid_after_utc.isoformat(),
         serial=format(cert.serial_number, "x"),
         sig_algorithm_oid=cert.signature_algorithm_oid.dotted_string,
-        sig_algorithm_name=cert.signature_algorithm_oid._name,
+        sig_algorithm_name=_resolve_sig_name(cert.signature_algorithm_oid.dotted_string),
         key_type=key_type,
         key_size=key_size,
         san_names=san_names,
@@ -101,6 +103,14 @@ def _parse_cert(cert: x509.Certificate) -> CertInfo:
         pem=pem,
         cert=cert,
     )
+
+
+def _resolve_sig_name(oid: str) -> str:
+    """Resolve a signature algorithm OID to a human-readable name."""
+    info = lookup_oid(oid)
+    if info:
+        return info.name
+    return oid
 
 
 def scan_host(host: str, port: int = 443, timeout: float = 10.0) -> ScanResult:
@@ -168,7 +178,8 @@ def scan_file(path: str) -> ScanResult:
     result = ScanResult(host=path, port=0)
 
     try:
-        data = open(path, "rb").read(10 * 1024 * 1024)  # 10MB limit
+        with open(path, "rb") as fh:
+            data = fh.read(10 * 1024 * 1024)  # 10MB limit
     except OSError as e:
         result.error = f"File error: {e}"
         return result

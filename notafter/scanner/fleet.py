@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -15,7 +16,7 @@ async def scan_fleet(
     port: int = 443,
     concurrency: int = 50,
     timeout: float = 10.0,
-    on_result: callable | None = None,
+    on_result: Callable[[ScanResult, int, int], None] | None = None,
 ) -> list[ScanResult]:
     """Scan multiple hosts concurrently.
 
@@ -26,25 +27,27 @@ async def scan_fleet(
         timeout: Per-host timeout in seconds
         on_result: Optional callback(result, index, total) for progress reporting
     """
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     semaphore = asyncio.Semaphore(concurrency)
-    results: list[ScanResult] = []
     total = len(targets)
+    executor = ThreadPoolExecutor(max_workers=min(concurrency, 100))
 
     async def _scan_one(target: str, index: int) -> ScanResult:
-        host, target_port = _parse_target(target, port)
+        host, target_port = parse_target(target, port)
         async with semaphore:
-            with ThreadPoolExecutor(max_workers=1) as pool:
-                result = await loop.run_in_executor(
-                    pool, scan_host, host, target_port, timeout
-                )
+            result = await loop.run_in_executor(
+                executor, scan_host, host, target_port, timeout
+            )
         if on_result:
             on_result(result, index, total)
         return result
 
-    tasks = [_scan_one(t, i) for i, t in enumerate(targets)]
-    results = await asyncio.gather(*tasks)
-    return list(results)
+    try:
+        tasks = [_scan_one(t, i) for i, t in enumerate(targets)]
+        results = await asyncio.gather(*tasks)
+        return list(results)
+    finally:
+        executor.shutdown(wait=False)
 
 
 def load_targets(source: str) -> list[str]:
@@ -57,11 +60,14 @@ def load_targets(source: str) -> list[str]:
     # Try CIDR first
     try:
         network = ipaddress.ip_network(source, strict=False)
-        if network.num_addresses <= 65536:
-            return [str(ip) for ip in network.hosts()]
-        raise ValueError(f"CIDR {source} too large ({network.num_addresses} hosts, max 65536)")
     except ValueError:
-        pass
+        pass  # Not a valid CIDR — try file
+    else:
+        if network.num_addresses > 65536:
+            raise ValueError(
+                f"CIDR {source} too large ({network.num_addresses} hosts, max 65536)"
+            )
+        return [str(ip) for ip in network.hosts()]
 
     # Try file
     path = Path(source)
@@ -76,7 +82,7 @@ def load_targets(source: str) -> list[str]:
     raise ValueError(f"Cannot parse '{source}' as CIDR or host file")
 
 
-def _parse_target(target: str, default_port: int) -> tuple[str, int]:
+def parse_target(target: str, default_port: int) -> tuple[str, int]:
     """Parse host:port from a target string. Supports IPv6 brackets."""
     target = target.strip()
     if target.startswith("["):

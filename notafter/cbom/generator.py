@@ -9,6 +9,7 @@ import json
 import uuid
 from datetime import datetime, timezone
 
+from notafter import __version__
 from notafter.pqc.oids import classify_algorithm, QuantumSafety
 from notafter.scanner.tls import ScanResult, CertInfo
 
@@ -37,7 +38,7 @@ def generate_cbom(scan: ScanResult) -> dict:
                     {
                         "type": "application",
                         "name": "notafter",
-                        "version": "0.1.0",
+                        "version": __version__,
                         "description": "PKI certificate auditor with PQC readiness scoring",
                     }
                 ]

@@ -166,7 +166,7 @@ def _check_key_strength(scan: ScanResult, _warn_days: int) -> list[Finding]:
                     component=label,
                     message=f"RSA-{ks}: strong key.",
                 ))
-        elif "DSA" in kt and kt != "Ed25519" and kt != "Ed448":
+        elif kt == "DSA":
             findings.append(Finding(
                 check="key_strength",
                 severity=Severity.CRITICAL,

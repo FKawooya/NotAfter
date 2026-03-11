@@ -4,14 +4,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from urllib.parse import urlparse
 
 import httpx
 from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.hashes import SHA1
 from cryptography.x509 import ocsp
 
 from notafter.scanner.tls import CertInfo
+
+MAX_OCSP_RESPONSE_SIZE = 1 * 1024 * 1024   # 1MB
+MAX_CRL_RESPONSE_SIZE = 20 * 1024 * 1024    # 20MB
+MAX_CT_RESPONSE_SIZE = 10 * 1024 * 1024     # 10MB
+ALLOWED_URL_SCHEMES = {"http", "https"}
 
 
 class RevocationStatus(Enum):
@@ -56,6 +62,17 @@ class RevocationReport:
             self.ocsp.status == RevocationStatus.REVOKED
             or self.crl.status == RevocationStatus.REVOKED
         )
+
+
+def _validate_url(url: str) -> str | None:
+    """Validate that a URL uses an allowed scheme. Returns error message or None."""
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ALLOWED_URL_SCHEMES:
+            return f"Rejected URL scheme '{parsed.scheme}' (only http/https allowed)"
+    except Exception:
+        return f"Invalid URL: {url}"
+    return None
 
 
 def check_revocation(
@@ -114,6 +131,13 @@ def _check_ocsp(
 
     result.responder_url = ocsp_urls[0]
 
+    # Validate URL scheme
+    url_error = _validate_url(result.responder_url)
+    if url_error:
+        result.status = RevocationStatus.ERROR
+        result.message = url_error
+        return result
+
     if issuer is None:
         result.status = RevocationStatus.UNKNOWN
         result.message = "No issuer certificate — cannot build OCSP request"
@@ -132,13 +156,18 @@ def _check_ocsp(
 
     # Send OCSP request
     try:
-        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+        with httpx.Client(timeout=timeout, follow_redirects=True, max_redirects=5) as client:
             response = client.post(
                 result.responder_url,
                 content=request_data,
                 headers={"Content-Type": "application/ocsp-request"},
             )
             response.raise_for_status()
+
+            if len(response.content) > MAX_OCSP_RESPONSE_SIZE:
+                result.status = RevocationStatus.ERROR
+                result.message = f"OCSP response too large ({len(response.content)} bytes)"
+                return result
     except Exception as e:
         result.status = RevocationStatus.ERROR
         result.message = f"OCSP request failed: {e}"
@@ -193,11 +222,23 @@ def _check_crl(cert: x509.Certificate, timeout: float) -> CRLResult:
 
     result.crl_url = crl_urls[0]
 
+    # Validate URL scheme
+    url_error = _validate_url(result.crl_url)
+    if url_error:
+        result.status = RevocationStatus.ERROR
+        result.message = url_error
+        return result
+
     # Download CRL
     try:
-        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+        with httpx.Client(timeout=timeout, follow_redirects=True, max_redirects=5) as client:
             response = client.get(result.crl_url)
             response.raise_for_status()
+
+            if len(response.content) > MAX_CRL_RESPONSE_SIZE:
+                result.status = RevocationStatus.ERROR
+                result.message = f"CRL too large ({len(response.content)} bytes, max {MAX_CRL_RESPONSE_SIZE})"
+                return result
     except Exception as e:
         result.status = RevocationStatus.ERROR
         result.message = f"CRL download failed: {e}"
@@ -220,7 +261,7 @@ def _check_crl(cert: x509.Certificate, timeout: float) -> CRLResult:
             revoked = crl.get_revoked_certificate_by_serial_number(cert.serial_number)
             if revoked is not None:
                 result.status = RevocationStatus.REVOKED
-                result.message = f"REVOKED via CRL"
+                result.message = "REVOKED via CRL"
             else:
                 result.status = RevocationStatus.GOOD
                 result.message = "Certificate not found in CRL (not revoked)"
@@ -256,11 +297,15 @@ def _check_ct(cert_info: CertInfo, timeout: float) -> CTResult:
     result.crt_sh_url = f"https://crt.sh/?q={query}"
 
     try:
-        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+        with httpx.Client(timeout=timeout, follow_redirects=True, max_redirects=5) as client:
             response = client.get(
-                f"https://crt.sh/?q={query}&output=json",
+                "https://crt.sh/",
+                params={"q": query, "output": "json"},
                 headers={"Accept": "application/json"},
             )
+            if len(response.content) > MAX_CT_RESPONSE_SIZE:
+                result.message = "CT response too large"
+                return result
             if response.status_code == 200:
                 entries = response.json()
                 result.ct_entries = len(entries)

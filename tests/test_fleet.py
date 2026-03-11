@@ -3,7 +3,7 @@
 import tempfile
 from pathlib import Path
 
-from notafter.scanner.fleet import load_targets, _parse_target
+from notafter.scanner.fleet import load_targets, parse_target
 
 
 class TestLoadTargets:
@@ -27,35 +27,38 @@ class TestLoadTargets:
         assert targets == ["example.com", "google.com:8443", "github.com"]
         Path(f.name).unlink()
 
+    def test_cidr_too_large(self):
+        import pytest
+        with pytest.raises(ValueError, match="too large"):
+            load_targets("10.0.0.0/8")
+
     def test_invalid_source(self):
-        try:
+        import pytest
+        with pytest.raises(ValueError, match="Cannot parse"):
             load_targets("not_a_file_or_cidr")
-            assert False, "Should have raised"
-        except ValueError:
-            pass
 
 
 class TestParseTarget:
     def test_host_only(self):
-        assert _parse_target("example.com", 443) == ("example.com", 443)
+        assert parse_target("example.com", 443) == ("example.com", 443)
 
     def test_host_port(self):
-        assert _parse_target("example.com:8443", 443) == ("example.com", 8443)
+        assert parse_target("example.com:8443", 443) == ("example.com", 8443)
 
     def test_ipv4(self):
-        assert _parse_target("10.0.0.1", 443) == ("10.0.0.1", 443)
+        assert parse_target("10.0.0.1", 443) == ("10.0.0.1", 443)
 
     def test_ipv4_port(self):
-        assert _parse_target("10.0.0.1:8443", 443) == ("10.0.0.1", 8443)
+        assert parse_target("10.0.0.1:8443", 443) == ("10.0.0.1", 8443)
 
     def test_ipv6_brackets(self):
-        assert _parse_target("[::1]:8443", 443) == ("::1", 8443)
+        assert parse_target("[::1]:8443", 443) == ("::1", 8443)
 
     def test_ipv6_brackets_no_port(self):
-        assert _parse_target("[::1]", 443) == ("::1", 443)
+        assert parse_target("[::1]", 443) == ("::1", 443)
 
     def test_ipv6_bare(self):
-        assert _parse_target("::1", 443) == ("::1", 443)
+        assert parse_target("::1", 443) == ("::1", 443)
 
     def test_whitespace_stripped(self):
-        assert _parse_target("  example.com  ", 443) == ("example.com", 443)
+        assert parse_target("  example.com  ", 443) == ("example.com", 443)

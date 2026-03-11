@@ -299,29 +299,8 @@ def _print_fleet_summary(fleet_data: list[dict], total_critical: int, total_warn
 
 def _parse_host_port(target: str, default_port: int) -> tuple[str, int]:
     """Parse host:port from target string."""
-    if target.startswith("["):
-        bracket_end = target.find("]")
-        if bracket_end != -1:
-            host = target[1:bracket_end]
-            rest = target[bracket_end + 1:]
-            if rest.startswith(":"):
-                try:
-                    return host, int(rest[1:])
-                except ValueError:
-                    pass
-            return host, default_port
-
-    if target.count(":") > 1:
-        return target, default_port
-
-    if ":" in target:
-        parts = target.rsplit(":", 1)
-        try:
-            return parts[0], int(parts[1])
-        except ValueError:
-            pass
-
-    return target, default_port
+    from notafter.scanner.fleet import parse_target
+    return parse_target(target, default_port)
 
 
 def _build_json(scan, audit, pqc_report, revocation_report) -> dict:
