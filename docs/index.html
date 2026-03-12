@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>notafter - PKI Certificate Auditing with PQC Readiness Scoring</title>
+  <meta name="description" content="One command. Full certificate audit. Quantum readiness score. Certificate linting, revocation checking, PQC scoring, and cryptographic inventory from a single CLI.">
+  <meta name="theme-color" content="#0d1117">
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="notafter - PKI Certificate Auditing with PQC Readiness">
+  <meta property="og:description" content="One command. Full certificate audit. Quantum readiness score.">
+  <meta property="og:type" content="website">
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Nav -->
+  <nav>
+    <div class="container">
+      <a href="#" class="logo">not<span>after</span></a>
+      <ul class="nav-links">
+        <li><a href="#features">Features</a></li>
+        <li><a href="#demo">Demo</a></li>
+        <li><a href="#commands">Commands</a></li>
+        <li><a href="#pqc">PQC Scoring</a></li>
+        <li><a href="https://github.com/FKawooya/NotAfter">GitHub</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="container">
+      <h1>One command.<br><span class="highlight">Full certificate audit.</span><br>Quantum readiness score.</h1>
+      <p class="tagline">Certificate linting, revocation checking, post-quantum readiness scoring, and cryptographic inventory &mdash; all from a single CLI. No browser extensions. No SaaS dashboards.</p>
+      <div class="install-box">
+        <span class="prompt">$</span>
+        <code>pip install notafter</code>
+      </div>
+      <div class="badges">
+        <span class="badge"><span class="dot dot-green"></span> Python 3.10+</span>
+        <span class="badge"><span class="dot dot-blue"></span> MIT License</span>
+        <span class="badge"><span class="dot dot-purple"></span> PQC Ready</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section id="features">
+    <div class="container">
+      <div class="section-header">
+        <h2>Four tools in one</h2>
+        <p>Most PKI tools do one thing. notafter does four &mdash; replacing openssl, zlint, manual OCSP checks, and nonexistent PQC tooling.</p>
+      </div>
+      <div class="features-grid">
+        <div class="feature-card">
+          <span class="icon">7x</span>
+          <h3>Certificate Linting</h3>
+          <p>Seven checks on every cert in the chain: expiry, key strength, signature algorithm, SAN validation, self-signed detection, chain completeness, and TLS version.</p>
+        </div>
+        <div class="feature-card">
+          <span class="icon">3x</span>
+          <h3>Revocation Checking</h3>
+          <p>OCSP responder queries, CRL download and serial lookup, Certificate Transparency log checks via crt.sh. All three methods, every scan.</p>
+        </div>
+        <div class="feature-card">
+          <span class="icon">PQ</span>
+          <h3>PQC Readiness Scoring</h3>
+          <p>0-10 quantum readiness score with letter grade. Tracks CNSA 2.0 compliance deadlines. Covers ML-DSA, SLH-DSA, ML-KEM, and IETF composite hybrids.</p>
+        </div>
+        <div class="feature-card">
+          <span class="icon">BOM</span>
+          <h3>Cryptographic Inventory</h3>
+          <p>CycloneDX 1.6 CBOM output. Machine-readable inventory of every algorithm, key, and certificate in a TLS connection. Fleet-wide aggregation supported.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Terminal Demo -->
+  <section id="demo">
+    <div class="container">
+      <div class="section-header">
+        <h2>See it in action</h2>
+        <p>A single scan gives you the full picture: lint results, PQC score, and revocation status.</p>
+      </div>
+      <div class="terminal">
+        <div class="terminal-header">
+          <span class="terminal-dot red"></span>
+          <span class="terminal-dot yellow"></span>
+          <span class="terminal-dot green"></span>
+          <span class="terminal-title">notafter scan github.com</span>
+        </div>
+        <div class="terminal-body"><span class="cmd">$ notafter scan github.com</span>
+
+                    <span class="accent">Certificate Audit: github.com:443</span>
+ <span class="dim">+------+----------------+--------------------------------+-------------------------+</span>
+ <span class="dim">|</span>      <span class="dim">|</span> Check          <span class="dim">|</span> Component                      <span class="dim">|</span> Finding                 <span class="dim">|</span>
+ <span class="dim">+------+----------------+--------------------------------+-------------------------+</span>
+ <span class="dim">|</span> <span class="pass">PASS</span> <span class="dim">|</span> expiry         <span class="dim">|</span> CN=github.com                  <span class="dim">|</span> Valid for 287 more days. <span class="dim">|</span>
+ <span class="dim">|</span> <span class="pass">PASS</span> <span class="dim">|</span> key_strength   <span class="dim">|</span> CN=github.com                  <span class="dim">|</span> EC-secp256r1: good key. <span class="dim">|</span>
+ <span class="dim">|</span> <span class="pass">PASS</span> <span class="dim">|</span> signature      <span class="dim">|</span> CN=github.com                  <span class="dim">|</span> Signature: ECDSA-SHA384 <span class="dim">|</span>
+ <span class="dim">|</span> <span class="pass">PASS</span> <span class="dim">|</span> san            <span class="dim">|</span> CN=github.com                  <span class="dim">|</span> SAN present: github.com <span class="dim">|</span>
+ <span class="dim">|</span> <span class="pass">PASS</span> <span class="dim">|</span> chain          <span class="dim">|</span> Chain                          <span class="dim">|</span> Chain has 3 certs.      <span class="dim">|</span>
+ <span class="dim">|</span> <span class="pass">PASS</span> <span class="dim">|</span> tls_version    <span class="dim">|</span> TLS                            <span class="dim">|</span> TLSv1.3 (optimal).      <span class="dim">|</span>
+ <span class="dim">+------+----------------+--------------------------------+-------------------------+</span>
+
+  <span class="pass">0 critical</span>  <span class="pass">0 warnings</span>  <span class="pass">6 passed</span>
+
+ <span class="purple">PQC Readiness Score: 2/10 (Grade: F)  Status: VULNERABLE</span>
+ <span class="dim">+---------------------+------------------------+----------------+--------+</span>
+ <span class="dim">|</span>  Component          <span class="dim">|</span> Algorithm              <span class="dim">|</span> Quantum Safety <span class="dim">|</span> Points <span class="dim">|</span>
+ <span class="dim">+---------------------+------------------------+----------------+--------+</span>
+ <span class="dim">|</span>  TLS version        <span class="dim">|</span> TLSv1.3                <span class="dim">|</span> <span class="crit">VULNERABLE</span>     <span class="dim">|</span> 1/1    <span class="dim">|</span>
+ <span class="dim">|</span>  Key exchange       <span class="dim">|</span> ECDHE (TLS 1.3)        <span class="dim">|</span> <span class="crit">VULNERABLE</span>     <span class="dim">|</span> 0/3    <span class="dim">|</span>
+ <span class="dim">|</span>  Leaf (EC)          <span class="dim">|</span> ECDSA-with-SHA384      <span class="dim">|</span> <span class="crit">VULNERABLE</span>     <span class="dim">|</span> 0/2    <span class="dim">|</span>
+ <span class="dim">|</span>  Intermediate (RSA) <span class="dim">|</span> SHA384WithRSA          <span class="dim">|</span> <span class="crit">VULNERABLE</span>     <span class="dim">|</span> 0/0    <span class="dim">|</span>
+ <span class="dim">|</span>  Root (RSA)         <span class="dim">|</span> SHA256WithRSA          <span class="dim">|</span> <span class="crit">VULNERABLE</span>     <span class="dim">|</span> 0/0    <span class="dim">|</span>
+ <span class="dim">+---------------------+------------------------+----------------+--------+</span>
+
+  <span class="crit">CNSA 2.0: NOT COMPLIANT</span>
+  <span class="warn">Next deadline (295 days): Software/firmware signing must support CNSA 2.0</span>
+
+  Recommendations:
+  <span class="crit">&gt; CRITICAL: No quantum protection. Begin PQC migration planning now.</span>
+  <span class="warn">&gt; Enable X25519MLKEM768 hybrid key exchange.</span>
+  <span class="warn">&gt; Migrate to ML-DSA-65 or composite (ML-DSA-65 + EC-secp256r1).</span>
+
+                         <span class="accent">Revocation Status</span>
+ <span class="dim">+--------+------------+------------------------------------------+</span>
+ <span class="dim">|</span> Method <span class="dim">|</span> Status     <span class="dim">|</span> Details                                  <span class="dim">|</span>
+ <span class="dim">+--------+------------+------------------------------------------+</span>
+ <span class="dim">|</span> OCSP   <span class="dim">|</span> <span class="pass">GOOD</span>       <span class="dim">|</span> Certificate is not revoked (OCSP)        <span class="dim">|</span>
+ <span class="dim">|</span> CRL    <span class="dim">|</span> <span class="pass">GOOD</span>       <span class="dim">|</span> Certificate not found in CRL             <span class="dim">|</span>
+ <span class="dim">|</span> CT     <span class="dim">|</span> <span class="pass">LOGGED</span>     <span class="dim">|</span> Found 1847 CT log entries for github.com <span class="dim">|</span>
+ <span class="dim">+--------+------------+------------------------------------------+</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Commands -->
+  <section id="commands">
+    <div class="container">
+      <div class="section-header">
+        <h2>Command reference</h2>
+        <p>Two commands cover everything &mdash; single hosts and fleet-wide scans.</p>
+      </div>
+
+      <h3 style="font-size: 1.1rem; margin-bottom: 8px; font-family: var(--font-mono); color: var(--accent);">notafter scan</h3>
+      <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">Audit a single host or certificate file.</p>
+      <table class="commands-table">
+        <thead>
+          <tr><th>Command</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>notafter scan example.com</td><td>Full audit: lint + revocation + PQC scoring</td></tr>
+          <tr><td>notafter scan example.com:8443</td><td>Non-standard port</td></tr>
+          <tr><td>notafter scan --file cert.pem</td><td>Audit a PEM or DER certificate file</td></tr>
+          <tr><td>notafter scan example.com --json</td><td>JSON output for CI/CD pipelines</td></tr>
+          <tr><td>notafter scan example.com --cbom</td><td>CycloneDX 1.6 cryptographic bill of materials</td></tr>
+          <tr><td>notafter scan example.com --no-revocation</td><td>Skip OCSP, CRL, and CT checks</td></tr>
+          <tr><td>notafter scan example.com --no-pqc</td><td>Skip PQC readiness assessment</td></tr>
+        </tbody>
+      </table>
+
+      <h3 style="font-size: 1.1rem; margin-top: 48px; margin-bottom: 8px; font-family: var(--font-mono); color: var(--accent);">notafter fleet</h3>
+      <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">Bulk scan from a host file or CIDR range with async concurrency.</p>
+      <table class="commands-table">
+        <thead>
+          <tr><th>Command</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>notafter fleet hosts.txt</td><td>Scan all hosts in a file (one per line)</td></tr>
+          <tr><td>notafter fleet 10.0.0.0/24</td><td>Scan a CIDR range (up to /16)</td></tr>
+          <tr><td>notafter fleet hosts.txt --json</td><td>JSON report for all hosts</td></tr>
+          <tr><td>notafter fleet hosts.txt --cbom</td><td>Fleet-wide cryptographic inventory</td></tr>
+          <tr><td>notafter fleet hosts.txt -c 100 -t 5</td><td>100 concurrent connections, 5s timeout</td></tr>
+        </tbody>
+      </table>
+
+      <div style="margin-top: 32px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px;">
+        <h4 style="font-size: 0.9rem; margin-bottom: 12px; color: var(--text-muted); font-weight: 600;">Exit Codes for CI/CD</h4>
+        <table class="commands-table" style="margin-top: 0;">
+          <tbody>
+            <tr><td style="color: var(--green);">0</td><td>All checks passed</td></tr>
+            <tr><td style="color: var(--yellow);">1</td><td>Warnings found</td></tr>
+            <tr><td style="color: var(--red);">2</td><td>Critical issues or connection errors</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- PQC Scoring -->
+  <section id="pqc">
+    <div class="container">
+      <div class="section-header">
+        <h2>PQC readiness scoring</h2>
+        <p>Every scan produces a quantum readiness score from 0 to 10, graded across six weighted factors.</p>
+      </div>
+
+      <div class="scoring-grid">
+        <div class="score-card">
+          <div class="points" style="color: var(--accent);">3</div>
+          <div class="label">Key Exchange</div>
+          <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Hybrid PQC KEM required</div>
+        </div>
+        <div class="score-card">
+          <div class="points" style="color: var(--purple);">2</div>
+          <div class="label">Leaf Certificate</div>
+          <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">PQC or hybrid signature</div>
+        </div>
+        <div class="score-card">
+          <div class="points" style="color: var(--purple);">2</div>
+          <div class="label">Chain Certs</div>
+          <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">All intermediates + root PQC</div>
+        </div>
+        <div class="score-card">
+          <div class="points" style="color: var(--green);">1</div>
+          <div class="label">TLS Version</div>
+          <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">TLS 1.3 required for PQC</div>
+        </div>
+        <div class="score-card">
+          <div class="points" style="color: var(--green);">1</div>
+          <div class="label">Clean Baseline</div>
+          <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">No SHA-1, MD5, or DSA</div>
+        </div>
+        <div class="score-card">
+          <div class="points" style="color: var(--yellow);">1</div>
+          <div class="label">CNSA 2.0</div>
+          <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">All algorithms approved</div>
+        </div>
+      </div>
+
+      <div class="grades-row">
+        <div class="grade-badge"><span class="grade grade-a">A</span> <span class="desc">9-10 &mdash; Quantum-safe</span></div>
+        <div class="grade-badge"><span class="grade grade-b">B</span> <span class="desc">7-8 &mdash; Hybrid protection</span></div>
+        <div class="grade-badge"><span class="grade grade-c">C</span> <span class="desc">5-6 &mdash; Partial readiness</span></div>
+        <div class="grade-badge"><span class="grade grade-d">D</span> <span class="desc">3-4 &mdash; Minimal</span></div>
+        <div class="grade-badge"><span class="grade grade-f">F</span> <span class="desc">0-2 &mdash; Vulnerable</span></div>
+      </div>
+
+      <!-- CNSA 2.0 Timeline -->
+      <div class="section-header" style="margin-top: 64px;">
+        <h2>CNSA 2.0 deadlines</h2>
+        <p>Federally mandated migration timeline for national security systems. notafter tracks compliance against each milestone.</p>
+      </div>
+
+      <div class="timeline">
+        <div class="timeline-item">
+          <div class="year">End of 2025</div>
+          <div class="desc">Software/firmware signing must <em>support</em> CNSA 2.0</div>
+        </div>
+        <div class="timeline-item">
+          <div class="year">End of 2026</div>
+          <div class="desc">Networking equipment must <em>support</em> CNSA 2.0</div>
+        </div>
+        <div class="timeline-item">
+          <div class="year">2027</div>
+          <div class="desc">New NSS acquisitions must be CNSA 2.0 compliant</div>
+        </div>
+        <div class="timeline-item">
+          <div class="year">2030</div>
+          <div class="desc">Software signing + networking <em>exclusively</em> CNSA 2.0</div>
+        </div>
+        <div class="timeline-item">
+          <div class="year">2033</div>
+          <div class="desc">Web browsers/servers <em>exclusively</em> CNSA 2.0</div>
+        </div>
+        <div class="timeline-item">
+          <div class="year">2035</div>
+          <div class="desc">All National Security Systems fully quantum-resistant</div>
+        </div>
+      </div>
+
+      <!-- Supported Algorithms -->
+      <div style="margin-top: 48px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: 10px; padding: 28px;">
+        <h3 style="font-size: 1rem; margin-bottom: 16px; font-weight: 700;">Supported PQC Algorithms</h3>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; font-size: 0.88rem;">
+          <div>
+            <div style="color: var(--accent); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px;">NIST Standards (FIPS 203/204/205)</div>
+            <div style="color: var(--text-muted); line-height: 1.7;">
+              <strong style="color: var(--text);">ML-DSA</strong> (Dilithium) &mdash; lattice-based signatures<br>
+              <strong style="color: var(--text);">SLH-DSA</strong> (SPHINCS+) &mdash; hash-based signatures<br>
+              <strong style="color: var(--text);">ML-KEM</strong> (Kyber) &mdash; lattice-based key encapsulation
+            </div>
+          </div>
+          <div>
+            <div style="color: var(--purple); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px;">IETF Composite/Hybrid</div>
+            <div style="color: var(--text-muted); line-height: 1.7; font-family: var(--font-mono); font-size: 0.8rem;">
+              MLDSA65-RSA3072-PSS<br>
+              MLDSA65-ECDSA-P256<br>
+              MLDSA65-Ed25519<br>
+              MLDSA87-ECDSA-P384<br>
+              MLDSA87-Ed448
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="cta-section">
+    <div class="container">
+      <h2>Start auditing</h2>
+      <p>Pure Python. No OpenSSL CLI. No root access. No external binaries.</p>
+      <div class="install-box" style="margin-bottom: 28px;">
+        <span class="prompt">$</span>
+        <code>pip install notafter</code>
+      </div>
+      <div class="cta-buttons">
+        <a href="https://github.com/FKawooya/NotAfter" class="btn btn-primary">View on GitHub</a>
+        <a href="https://pypi.org/project/notafter/" class="btn btn-secondary">PyPI Package</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container">
+      <div class="footer-links">
+        <a href="https://github.com/FKawooya/NotAfter">GitHub</a>
+        <a href="https://pypi.org/project/notafter/">PyPI</a>
+        <a href="https://github.com/FKawooya/NotAfter/blob/main/LICENSE">MIT License</a>
+      </div>
+      <p>Built by <a href="https://github.com/FKawooya">Fred Kawooya</a></p>
+    </div>
+  </footer>
+
+</body>
+</html>
