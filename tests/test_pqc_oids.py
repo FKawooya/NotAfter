@@ -93,3 +93,76 @@ class TestClassification:
     def test_all_algorithms_not_empty(self):
         algos = all_algorithms()
         assert len(algos) > 20
+
+
+class TestAllAlgorithmsSpecificEntries:
+    """Q-L5: all_algorithms() — verify specific expected entries exist."""
+
+    def test_contains_ml_dsa_65(self):
+        algos = all_algorithms()
+        names = {a.name for a in algos}
+        assert "ML-DSA-65" in names
+
+    def test_contains_ml_kem_768(self):
+        algos = all_algorithms()
+        names = {a.name for a in algos}
+        assert "ML-KEM-768" in names
+
+    def test_contains_sha256_rsa(self):
+        algos = all_algorithms()
+        names = {a.name for a in algos}
+        assert "SHA256WithRSAEncryption" in names
+
+    def test_contains_ecdsa_sha256(self):
+        algos = all_algorithms()
+        names = {a.name for a in algos}
+        assert "ECDSA-with-SHA256" in names
+
+    def test_contains_ed25519(self):
+        algos = all_algorithms()
+        names = {a.name for a in algos}
+        assert "Ed25519" in names
+
+    def test_contains_slh_dsa(self):
+        algos = all_algorithms()
+        names = {a.name for a in algos}
+        slh_names = [n for n in names if "SLH-DSA" in n]
+        assert len(slh_names) >= 4, f"Expected at least 4 SLH-DSA variants, got {slh_names}"
+
+    def test_contains_composite_hybrid(self):
+        algos = all_algorithms()
+        names = {a.name for a in algos}
+        composite_names = [n for n in names if "MLDSA" in n]
+        assert len(composite_names) >= 1, f"Expected composite algorithms, got {composite_names}"
+
+
+class TestOIDMapRegistry:
+    """Q-L7: _OID_MAP explicit registry — verify it is populated and correct."""
+
+    def test_oid_map_is_same_object(self):
+        from notafter.pqc.oids import _build_oid_map
+        map1 = _build_oid_map()
+        map2 = _build_oid_map()
+        # Same dict object (cached — returns the module-level _OID_MAP both times)
+        assert map1 is map2
+
+    def test_oid_map_not_empty(self):
+        from notafter.pqc.oids import _build_oid_map
+        _build_oid_map()  # ensure populated
+        from notafter.pqc.oids import _OID_MAP
+        assert len(_OID_MAP) > 20
+
+    def test_oid_map_values_are_algorithm_info(self):
+        from notafter.pqc.oids import _build_oid_map, AlgorithmInfo
+        _OID_MAP = _build_oid_map()
+        for oid, info in _OID_MAP.items():
+            assert isinstance(info, AlgorithmInfo)
+            assert isinstance(oid, str)
+            assert "." in oid  # dotted notation
+
+
+def test_all_algorithms_covers_all_module_constants():
+    import notafter.pqc.oids as m
+    from notafter.pqc.oids import AlgorithmInfo, _ALL_ALGORITHMS
+    module_algos = {v for v in vars(m).values() if isinstance(v, AlgorithmInfo)}
+    assert module_algos == set(_ALL_ALGORITHMS)

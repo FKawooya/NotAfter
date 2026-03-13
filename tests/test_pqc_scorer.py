@@ -93,3 +93,46 @@ class TestPQCScoring:
         report = score_chain(_classical_chain())
         assert report.cnsa2_days_remaining > 0
         assert report.cnsa2_next_deadline != ""
+
+
+class TestPQCScorerDeprecatedDetection:
+    """Q-M9: SHA-1 in chain should deduct baseline point."""
+
+    def test_sha1_deducts_baseline_point(self):
+        chain_with_sha1 = [
+            {"sig_oid": "1.2.840.113549.1.1.11", "key_type": "RSA", "key_size": 2048, "label": "Leaf"},
+            # SHA-1 signature — OID 1.2.840.113549.1.1.5 has "DEPRECATED" in notes
+            {"sig_oid": "1.2.840.113549.1.1.5", "key_type": "RSA", "key_size": 2048, "label": "Intermediate"},
+        ]
+        report_with_sha1 = score_chain(chain_with_sha1, tls_version="TLSv1.3", key_exchange="ECDHE")
+
+        chain_without_sha1 = [
+            {"sig_oid": "1.2.840.113549.1.1.11", "key_type": "RSA", "key_size": 2048, "label": "Leaf"},
+            {"sig_oid": "1.2.840.113549.1.1.11", "key_type": "RSA", "key_size": 2048, "label": "Intermediate"},
+        ]
+        report_without_sha1 = score_chain(chain_without_sha1, tls_version="TLSv1.3", key_exchange="ECDHE")
+
+        # The chain with SHA-1 should score strictly lower due to baseline deduction
+        assert report_with_sha1.score < report_without_sha1.score, (
+            f"SHA-1 in chain should deduct from score. "
+            f"With SHA-1: {report_with_sha1.score}, without: {report_without_sha1.score}"
+        )
+
+
+class TestPQCGradeBoundaries:
+    """Q-L6: PQC grade boundary values — test score 0-10 produce correct grades."""
+
+    def test_grade_boundaries(self):
+        from notafter.pqc.scorer import PQCReport
+        expected = {
+            0: "F", 1: "F", 2: "F",
+            3: "D", 4: "D",
+            5: "C", 6: "C",
+            7: "B", 8: "B",
+            9: "A", 10: "A",
+        }
+        for score, expected_grade in expected.items():
+            report = PQCReport(score=score)
+            assert report.grade == expected_grade, (
+                f"Score {score} should produce grade '{expected_grade}', got '{report.grade}'"
+            )

@@ -16,7 +16,14 @@ from notafter.pqc.oids import lookup_oid
 
 @dataclass
 class CertInfo:
-    """Parsed certificate metadata."""
+    """Parsed certificate metadata.
+
+    All fields are JSON-serializable *except* ``cert``, which holds
+    the raw ``cryptography.x509.Certificate`` for use by the revocation
+    checker.  Serialisation helpers (JSON output, CBOM) should skip
+    this field — it is intentionally ``Optional`` and excluded from
+    serialised representations.
+    """
 
     subject: str
     issuer: str
@@ -31,7 +38,8 @@ class CertInfo:
     is_self_signed: bool = False
     is_ca: bool = False
     pem: str = ""
-    cert: x509.Certificate | None = None
+    #: Raw x509 object — NOT serializable. Used by revocation checker only.
+    cert: x509.Certificate | None = field(default=None, repr=False)
 
 
 @dataclass
@@ -146,8 +154,11 @@ def scan_host(host: str, port: int = 443, timeout: float = 10.0) -> ScanResult:
 
                 # Parse the leaf cert at minimum
                 if der_chain:
-                    leaf = x509.load_der_x509_certificate(der_chain)
-                    result.chain.append(_parse_cert(leaf))
+                    try:
+                        leaf = x509.load_der_x509_certificate(der_chain)
+                        result.chain.append(_parse_cert(leaf))
+                    except (ValueError, TypeError, AttributeError):
+                        pass  # Malformed DER — fall through to fallback
 
                 # Try to get full chain via undocumented method
                 if peer_certs is None:
@@ -194,7 +205,10 @@ def scan_file(path: str) -> ScanResult:
     except Exception:
         pass
 
-    # Try single PEM
+    # Try single PEM — kept as a fallback because some cryptography
+    # versions return an empty list from load_pem_x509_certificates()
+    # when the PEM block has irregular whitespace or trailing data that
+    # the single-cert loader tolerates.
     try:
         cert = x509.load_pem_x509_certificate(data)
         result.chain.append(_parse_cert(cert))

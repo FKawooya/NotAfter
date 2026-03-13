@@ -1,7 +1,13 @@
-"""Revocation checking — OCSP, CRL, and Certificate Transparency in one pass."""
+"""Revocation checking — OCSP, CRL, and Certificate Transparency in one pass.
+
+Provides both async (``check_revocation_async``) and sync (``check_revocation``)
+entry points.  Fleet scans should use the async variant to avoid blocking the
+event loop; single-scan CLI uses the sync wrapper.
+"""
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from enum import Enum
 from urllib.parse import urlparse
@@ -12,6 +18,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.hashes import SHA1
 from cryptography.x509 import ocsp
 
+from notafter.checks.engine import _parse_rdn_parts
 from notafter.scanner.tls import CertInfo
 
 MAX_OCSP_RESPONSE_SIZE = 1 * 1024 * 1024   # 1MB
@@ -75,13 +82,18 @@ def _validate_url(url: str) -> str | None:
     return None
 
 
-def check_revocation(
+# ---------------------------------------------------------------------------
+# Async implementation
+# ---------------------------------------------------------------------------
+
+
+async def check_revocation_async(
     cert_info: CertInfo,
     issuer_info: CertInfo | None = None,
     check_ct: bool = True,
     timeout: float = 10.0,
 ) -> RevocationReport:
-    """Check revocation status via OCSP, CRL, and CT logs."""
+    """Check revocation status via OCSP, CRL, and CT logs (async)."""
     report = RevocationReport()
 
     cert = cert_info.cert
@@ -92,28 +104,30 @@ def check_revocation(
         report.crl.message = "No parsed certificate available"
         return report
 
-    # OCSP
-    report.ocsp = _check_ocsp(cert, issuer_cert, timeout)
+    async with httpx.AsyncClient(
+        timeout=timeout, follow_redirects=True, max_redirects=5,
+    ) as client:
+        # OCSP
+        report.ocsp = await _check_ocsp_async(cert, issuer_cert, client)
 
-    # CRL
-    report.crl = _check_crl(cert, timeout)
+        # CRL
+        report.crl = await _check_crl_async(cert, client)
 
-    # CT
-    if check_ct:
-        report.ct = _check_ct(cert_info, timeout)
+        # CT
+        if check_ct:
+            report.ct = await _check_ct_async(cert_info, client)
 
     return report
 
 
-def _check_ocsp(
+async def _check_ocsp_async(
     cert: x509.Certificate,
     issuer: x509.Certificate | None,
-    timeout: float,
+    client: httpx.AsyncClient,
 ) -> OCSPResult:
-    """Check OCSP responder for revocation status."""
+    """Check OCSP responder for revocation status (async)."""
     result = OCSPResult()
 
-    # Extract OCSP responder URL from AIA extension
     try:
         aia = cert.extensions.get_extension_for_class(x509.AuthorityInformationAccess)
         ocsp_urls = [
@@ -131,7 +145,6 @@ def _check_ocsp(
 
     result.responder_url = ocsp_urls[0]
 
-    # Validate URL scheme
     url_error = _validate_url(result.responder_url)
     if url_error:
         result.status = RevocationStatus.ERROR
@@ -143,7 +156,6 @@ def _check_ocsp(
         result.message = "No issuer certificate — cannot build OCSP request"
         return result
 
-    # Build OCSP request
     try:
         builder = ocsp.OCSPRequestBuilder()
         builder = builder.add_certificate(cert, issuer, SHA1())
@@ -154,26 +166,23 @@ def _check_ocsp(
         result.message = f"Failed to build OCSP request: {e}"
         return result
 
-    # Send OCSP request
     try:
-        with httpx.Client(timeout=timeout, follow_redirects=True, max_redirects=5) as client:
-            response = client.post(
-                result.responder_url,
-                content=request_data,
-                headers={"Content-Type": "application/ocsp-request"},
-            )
-            response.raise_for_status()
+        response = await client.post(
+            result.responder_url,
+            content=request_data,
+            headers={"Content-Type": "application/ocsp-request"},
+        )
+        response.raise_for_status()
 
-            if len(response.content) > MAX_OCSP_RESPONSE_SIZE:
-                result.status = RevocationStatus.ERROR
-                result.message = f"OCSP response too large ({len(response.content)} bytes)"
-                return result
+        if len(response.content) > MAX_OCSP_RESPONSE_SIZE:
+            result.status = RevocationStatus.ERROR
+            result.message = f"OCSP response too large ({len(response.content)} bytes)"
+            return result
     except Exception as e:
         result.status = RevocationStatus.ERROR
         result.message = f"OCSP request failed: {e}"
         return result
 
-    # Parse OCSP response
     try:
         ocsp_response = ocsp.load_der_ocsp_response(response.content)
         if ocsp_response.response_status != ocsp.OCSPResponseStatus.SUCCESSFUL:
@@ -199,11 +208,13 @@ def _check_ocsp(
     return result
 
 
-def _check_crl(cert: x509.Certificate, timeout: float) -> CRLResult:
-    """Download and check CRL for revocation."""
+async def _check_crl_async(
+    cert: x509.Certificate,
+    client: httpx.AsyncClient,
+) -> CRLResult:
+    """Download and check CRL for revocation (async)."""
     result = CRLResult()
 
-    # Extract CRL distribution points
     try:
         cdp = cert.extensions.get_extension_for_class(x509.CRLDistributionPoints)
         crl_urls = []
@@ -222,29 +233,25 @@ def _check_crl(cert: x509.Certificate, timeout: float) -> CRLResult:
 
     result.crl_url = crl_urls[0]
 
-    # Validate URL scheme
     url_error = _validate_url(result.crl_url)
     if url_error:
         result.status = RevocationStatus.ERROR
         result.message = url_error
         return result
 
-    # Download CRL
     try:
-        with httpx.Client(timeout=timeout, follow_redirects=True, max_redirects=5) as client:
-            response = client.get(result.crl_url)
-            response.raise_for_status()
+        response = await client.get(result.crl_url)
+        response.raise_for_status()
 
-            if len(response.content) > MAX_CRL_RESPONSE_SIZE:
-                result.status = RevocationStatus.ERROR
-                result.message = f"CRL too large ({len(response.content)} bytes, max {MAX_CRL_RESPONSE_SIZE})"
-                return result
+        if len(response.content) > MAX_CRL_RESPONSE_SIZE:
+            result.status = RevocationStatus.ERROR
+            result.message = f"CRL too large ({len(response.content)} bytes, max {MAX_CRL_RESPONSE_SIZE})"
+            return result
     except Exception as e:
         result.status = RevocationStatus.ERROR
         result.message = f"CRL download failed: {e}"
         return result
 
-    # Parse CRL and check serial
     try:
         crl = x509.load_der_x509_crl(response.content)
         revoked = crl.get_revoked_certificate_by_serial_number(cert.serial_number)
@@ -255,7 +262,6 @@ def _check_crl(cert: x509.Certificate, timeout: float) -> CRLResult:
             result.status = RevocationStatus.GOOD
             result.message = "Certificate not found in CRL (not revoked)"
     except Exception:
-        # Try PEM format
         try:
             crl = x509.load_pem_x509_crl(response.content)
             revoked = crl.get_revoked_certificate_by_serial_number(cert.serial_number)
@@ -272,52 +278,89 @@ def _check_crl(cert: x509.Certificate, timeout: float) -> CRLResult:
     return result
 
 
-def _check_ct(cert_info: CertInfo, timeout: float) -> CTResult:
-    """Check Certificate Transparency logs via crt.sh."""
+async def _check_ct_async(
+    cert_info: CertInfo,
+    client: httpx.AsyncClient,
+) -> CTResult:
+    """Check Certificate Transparency logs via crt.sh (async)."""
     result = CTResult()
 
-    # Use the first SAN or subject CN to query crt.sh
     query = None
     if cert_info.san_names:
         query = cert_info.san_names[0]
     else:
-        for part in cert_info.subject.split(","):
-            if "CN=" in part:
-                query = part.strip().replace("CN=", "")
+        for part in _parse_rdn_parts(cert_info.subject):
+            if part.strip().startswith("CN="):
+                query = part.strip().removeprefix("CN=")
                 break
 
     if not query:
         result.message = "No domain name to query CT logs"
         return result
 
-    # Strip wildcard prefix
     if query.startswith("*."):
         query = query[2:]
 
     result.crt_sh_url = f"https://crt.sh/?q={query}"
 
     try:
-        with httpx.Client(timeout=timeout, follow_redirects=True, max_redirects=5) as client:
-            response = client.get(
-                "https://crt.sh/",
-                params={"q": query, "output": "json"},
-                headers={"Accept": "application/json"},
+        response = await client.get(
+            "https://crt.sh/",
+            params={"q": query, "output": "json"},
+            headers={"Accept": "application/json"},
+        )
+        if len(response.content) > MAX_CT_RESPONSE_SIZE:
+            result.message = "CT response too large"
+            return result
+        if response.status_code == 200:
+            entries = response.json()
+            result.ct_entries = len(entries)
+            result.logged = result.ct_entries > 0
+            result.message = (
+                f"Found {result.ct_entries} CT log entries for {query}"
+                if result.logged
+                else f"No CT log entries found for {query}"
             )
-            if len(response.content) > MAX_CT_RESPONSE_SIZE:
-                result.message = "CT response too large"
-                return result
-            if response.status_code == 200:
-                entries = response.json()
-                result.ct_entries = len(entries)
-                result.logged = result.ct_entries > 0
-                result.message = (
-                    f"Found {result.ct_entries} CT log entries for {query}"
-                    if result.logged
-                    else f"No CT log entries found for {query}"
-                )
-            else:
-                result.message = f"crt.sh returned HTTP {response.status_code}"
+        else:
+            result.message = f"crt.sh returned HTTP {response.status_code}"
     except Exception as e:
         result.message = f"CT log query failed: {e}"
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Sync wrapper — used by the single-scan CLI path
+# ---------------------------------------------------------------------------
+
+
+def check_revocation(
+    cert_info: CertInfo,
+    issuer_info: CertInfo | None = None,
+    check_ct: bool = True,
+    timeout: float = 10.0,
+) -> RevocationReport:
+    """Check revocation status via OCSP, CRL, and CT logs (sync wrapper).
+
+    For fleet/bulk scans, prefer ``check_revocation_async`` to avoid blocking.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        # Already inside an async context — create a new thread to run the coroutine
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(
+                asyncio.run,
+                check_revocation_async(cert_info, issuer_info, check_ct, timeout),
+            )
+            return future.result()
+
+    return asyncio.run(
+        check_revocation_async(cert_info, issuer_info, check_ct, timeout)
+    )
+
+

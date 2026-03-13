@@ -12,7 +12,9 @@ from notafter.pqc.scorer import PQCReport
 from notafter.pqc.oids import QuantumSafety
 from notafter.revocation.checker import RevocationReport, RevocationStatus
 
+#: Shared Rich console instance — use this instead of creating new Console() objects.
 console = Console()
+
 
 SEVERITY_STYLES = {
     Severity.CRITICAL: ("bold red", "CRIT"),

@@ -373,25 +373,70 @@ SECP256R1_MLKEM768 = AlgorithmInfo(
 )
 
 
-# --- Lookup ---
+# --- Registry ---
 
-_OID_MAP: dict[str, AlgorithmInfo] = {}
+# Explicit algorithm registry. Every AlgorithmInfo defined above must be listed here.
+_ALL_ALGORITHMS: list[AlgorithmInfo] = [
+    # NIST PQC signatures (FIPS 204)
+    ML_DSA_44,
+    ML_DSA_65,
+    ML_DSA_87,
+    # NIST PQC signatures (FIPS 205 — hash-based)
+    SLH_DSA_SHA2_128S,
+    SLH_DSA_SHA2_128F,
+    SLH_DSA_SHA2_192S,
+    SLH_DSA_SHA2_192F,
+    SLH_DSA_SHA2_256S,
+    SLH_DSA_SHA2_256F,
+    SLH_DSA_SHAKE_128S,
+    SLH_DSA_SHAKE_128F,
+    SLH_DSA_SHAKE_192S,
+    SLH_DSA_SHAKE_192F,
+    SLH_DSA_SHAKE_256S,
+    SLH_DSA_SHAKE_256F,
+    # NIST PQC key exchange (FIPS 203)
+    ML_KEM_512,
+    ML_KEM_768,
+    ML_KEM_1024,
+    # Hybrid / composite (IETF LAMPS WG)
+    COMPOSITE_ML_DSA_65_RSA,
+    COMPOSITE_ML_DSA_65_ECDSA_P256,
+    COMPOSITE_ML_DSA_65_Ed25519,
+    COMPOSITE_ML_DSA_87_ECDSA_P384,
+    COMPOSITE_ML_DSA_87_Ed448,
+    # Classical signatures
+    RSA_WITH_SHA256,
+    RSA_WITH_SHA384,
+    RSA_WITH_SHA512,
+    RSA_WITH_SHA1,
+    RSA_WITH_MD5,
+    RSA_PSS,
+    ECDSA_WITH_SHA256,
+    ECDSA_WITH_SHA384,
+    ECDSA_WITH_SHA512,
+    ED25519,
+    ED448,
+    DSA_WITH_SHA256,
+    # TLS key exchange (no OIDs — identified by cipher suite name)
+    X25519_KYBER768,
+    X25519_MLKEM768,
+    SECP256R1_MLKEM768,
+]
+
+# OID-keyed lookup map built from the explicit registry.
+_OID_MAP: dict[str, AlgorithmInfo] = {
+    algo.oid: algo for algo in _ALL_ALGORITHMS if algo.oid
+}
+
 
 def _build_oid_map() -> dict[str, AlgorithmInfo]:
-    if _OID_MAP:
-        return _OID_MAP
-    import sys
-    module = sys.modules[__name__]
-    for name in dir(module):
-        obj = getattr(module, name)
-        if isinstance(obj, AlgorithmInfo) and obj.oid:
-            _OID_MAP[obj.oid] = obj
+    """Returns the pre-built OID map. Kept for backward compatibility."""
     return _OID_MAP
 
 
 def lookup_oid(oid: str) -> AlgorithmInfo | None:
     """Look up algorithm info by OID string (dotted notation)."""
-    return _build_oid_map().get(oid)
+    return _OID_MAP.get(oid)
 
 
 def classify_algorithm(oid: str) -> QuantumSafety:
@@ -407,6 +452,5 @@ def is_pqc_safe(oid: str) -> bool:
 
 
 def all_algorithms() -> list[AlgorithmInfo]:
-    """Return all known algorithms."""
-    _build_oid_map()
-    return list(_OID_MAP.values())
+    """Return all known algorithms, including those without OIDs (e.g. TLS key exchange)."""
+    return list(_ALL_ALGORITHMS)

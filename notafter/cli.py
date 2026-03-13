@@ -5,14 +5,48 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+from contextlib import contextmanager
 
 import click
-from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from notafter import __version__
+from notafter.output.terminal import console
 
-console = Console()
+
+@contextmanager
+def _spinner(description: str):
+    """Context manager for a transient progress spinner."""
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+        transient=True,
+    ) as progress:
+        progress.add_task(description, total=None)
+        yield progress
+
+
+def _build_chain_algos(chain, *, with_labels: bool = False):
+    """Build the chain_algorithms list expected by score_chain.
+
+    Args:
+        chain: List of CertInfo objects from a ScanResult.
+        with_labels: If True, generate human-readable labels for each cert.
+    """
+    return [
+        {
+            "sig_oid": c.sig_algorithm_oid,
+            "key_type": c.key_type,
+            "key_size": c.key_size,
+            "label": (
+                f"{'Leaf' if i == 0 else 'Root' if c.is_self_signed else f'Intermediate #{i}'} ({c.key_type})"
+                if with_labels
+                else ""
+            ),
+        }
+        for i, c in enumerate(chain)
+    ]
 
 
 @click.group()
@@ -60,18 +94,13 @@ def scan(target, is_file, port, warn_days, json_out, cbom, no_revocation, no_pqc
     from notafter.output.terminal import print_audit, print_pqc, print_revocation
 
     # Scan
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        console=console,
-        transient=True,
-    ) as progress:
-        if is_file:
-            progress.add_task("Scanning certificate file...", total=None)
+    if is_file:
+        with _spinner("Scanning certificate file..."):
             result = scan_file(target)
-        else:
-            host, scan_port = _parse_host_port(target, port)
-            progress.add_task(f"Connecting to {host}:{scan_port}...", total=None)
+    else:
+        from notafter.scanner.fleet import parse_target
+        host, scan_port = parse_target(target, port)
+        with _spinner(f"Connecting to {host}:{scan_port}..."):
             result = scan_host(host, scan_port, timeout)
 
     if result.error and not result.chain:
@@ -90,17 +119,8 @@ def scan(target, is_file, port, warn_days, json_out, cbom, no_revocation, no_pqc
     # PQC assessment
     pqc_report = None
     if not no_pqc and result.chain:
-        chain_algos = [
-            {
-                "sig_oid": c.sig_algorithm_oid,
-                "key_type": c.key_type,
-                "key_size": c.key_size,
-                "label": f"{'Leaf' if i == 0 else 'Root' if c.is_self_signed else f'Intermediate #{i}'} ({c.key_type})",
-            }
-            for i, c in enumerate(result.chain)
-        ]
         pqc_report = score_chain(
-            chain_algos,
+            _build_chain_algos(result.chain, with_labels=True),
             tls_version=result.tls_version,
             key_exchange=result.key_exchange,
         )
@@ -108,13 +128,7 @@ def scan(target, is_file, port, warn_days, json_out, cbom, no_revocation, no_pqc
     # Revocation
     revocation_report = None
     if not no_revocation and result.chain and not is_file:
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console,
-            transient=True,
-        ) as progress:
-            progress.add_task("Checking revocation status...", total=None)
+        with _spinner("Checking revocation status..."):
             issuer = result.chain[1] if len(result.chain) > 1 else None
             revocation_report = check_revocation(result.chain[0], issuer)
 
@@ -221,11 +235,11 @@ def fleet(source, port, concurrency, timeout, warn_days, json_out, cbom, no_pqc)
         }
 
         if not no_pqc and r.chain:
-            chain_algos = [
-                {"sig_oid": c.sig_algorithm_oid, "key_type": c.key_type, "key_size": c.key_size, "label": ""}
-                for c in r.chain
-            ]
-            pqc = score_chain(chain_algos, tls_version=r.tls_version, key_exchange=r.key_exchange)
+            pqc = score_chain(
+                _build_chain_algos(r.chain),
+                tls_version=r.tls_version,
+                key_exchange=r.key_exchange,
+            )
             entry["pqc_score"] = pqc.score
             entry["pqc_grade"] = pqc.grade
 
@@ -295,12 +309,6 @@ def _print_fleet_summary(fleet_data: list[dict], total_critical: int, total_warn
         f"  [red]{total_critical} critical[/red]"
         f"  [yellow]{total_warning} warnings[/yellow]"
     )
-
-
-def _parse_host_port(target: str, default_port: int) -> tuple[str, int]:
-    """Parse host:port from target string."""
-    from notafter.scanner.fleet import parse_target
-    return parse_target(target, default_port)
 
 
 def _build_json(scan, audit, pqc_report, revocation_report) -> dict:

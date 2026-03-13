@@ -88,7 +88,7 @@ def run_checks(scan: ScanResult, warn_days: int = 30) -> AuditReport:
 # --- Individual checks ---
 
 
-def _check_expiry(scan: ScanResult, warn_days: int) -> list[Finding]:
+def check_expiry(scan: ScanResult, warn_days: int) -> list[Finding]:
     findings = []
     now = datetime.now(timezone.utc)
     warn_threshold = now + timedelta(days=warn_days)
@@ -135,14 +135,22 @@ def _check_expiry(scan: ScanResult, warn_days: int) -> list[Finding]:
     return findings
 
 
-def _check_key_strength(scan: ScanResult, _warn_days: int) -> list[Finding]:
+def check_key_strength(scan: ScanResult, _warn_days: int) -> list[Finding]:
     findings = []
     for i, cert in enumerate(scan.chain):
         label = _cert_label(cert, i)
         kt = cert.key_type
         ks = cert.key_size
 
-        if kt == "RSA" and ks is not None:
+        if kt == "RSA" and ks is None:
+            findings.append(Finding(
+                check="key_strength",
+                severity=Severity.WARNING,
+                component=label,
+                message="RSA key size could not be determined.",
+                remediation="Verify the certificate's public key is accessible and parseable.",
+            ))
+        elif kt == "RSA" and ks is not None:
             if ks < 2048:
                 findings.append(Finding(
                     check="key_strength",
@@ -181,11 +189,19 @@ def _check_key_strength(scan: ScanResult, _warn_days: int) -> list[Finding]:
                 component=label,
                 message=f"{kt}: good key type.",
             ))
+        else:
+            findings.append(Finding(
+                check="key_strength",
+                severity=Severity.INFO,
+                component=label,
+                message=f"Unrecognized key type: {kt}.",
+                remediation="Verify that the key type is supported and meets security requirements.",
+            ))
 
     return findings
 
 
-def _check_signature(scan: ScanResult, _warn_days: int) -> list[Finding]:
+def check_signature(scan: ScanResult, _warn_days: int) -> list[Finding]:
     findings = []
     deprecated = {"sha1", "md5", "md2"}
 
@@ -212,7 +228,7 @@ def _check_signature(scan: ScanResult, _warn_days: int) -> list[Finding]:
     return findings
 
 
-def _check_san(scan: ScanResult, _warn_days: int) -> list[Finding]:
+def check_san(scan: ScanResult, _warn_days: int) -> list[Finding]:
     findings = []
     if scan.chain:
         leaf = scan.chain[0]
@@ -244,7 +260,7 @@ def _check_san(scan: ScanResult, _warn_days: int) -> list[Finding]:
     return findings
 
 
-def _check_self_signed(scan: ScanResult, _warn_days: int) -> list[Finding]:
+def check_self_signed(scan: ScanResult, _warn_days: int) -> list[Finding]:
     findings = []
     if scan.chain:
         leaf = scan.chain[0]
@@ -259,7 +275,7 @@ def _check_self_signed(scan: ScanResult, _warn_days: int) -> list[Finding]:
     return findings
 
 
-def _check_chain(scan: ScanResult, _warn_days: int) -> list[Finding]:
+def check_chain(scan: ScanResult, _warn_days: int) -> list[Finding]:
     findings = []
     if len(scan.chain) == 1 and not scan.chain[0].is_self_signed:
         findings.append(Finding(
@@ -279,7 +295,7 @@ def _check_chain(scan: ScanResult, _warn_days: int) -> list[Finding]:
     return findings
 
 
-def _check_tls_version(scan: ScanResult, _warn_days: int) -> list[Finding]:
+def check_tls_version(scan: ScanResult, _warn_days: int) -> list[Finding]:
     findings = []
     if scan.tls_version:
         version = scan.tls_version
@@ -316,12 +332,38 @@ def _check_tls_version(scan: ScanResult, _warn_days: int) -> list[Finding]:
     return findings
 
 
+def _parse_rdn_parts(rdn: str) -> list[str]:
+    """Split an RFC 4514 distinguished name into attribute parts.
+
+    Handles escaped commas (``\\,``) correctly so they are not treated
+    as delimiters.
+    """
+    parts: list[str] = []
+    current: list[str] = []
+    i = 0
+    while i < len(rdn):
+        ch = rdn[i]
+        if ch == "\\" and i + 1 < len(rdn):
+            # Escaped character — consume both and keep going
+            current.append(rdn[i : i + 2])
+            i += 2
+        elif ch == ",":
+            parts.append("".join(current).strip())
+            current = []
+            i += 1
+        else:
+            current.append(ch)
+            i += 1
+    if current:
+        parts.append("".join(current).strip())
+    return parts
+
+
 def _cert_label(cert: CertInfo, index: int) -> str:
     """Generate a human-readable label for a certificate."""
     if index == 0:
-        # Try to extract CN for leaf
-        for part in cert.subject.split(","):
-            if "CN=" in part:
+        for part in _parse_rdn_parts(cert.subject):
+            if part.strip().startswith("CN="):
                 return part.strip()
         return "Leaf certificate"
     if cert.is_ca and cert.is_self_signed:
@@ -330,19 +372,19 @@ def _cert_label(cert: CertInfo, index: int) -> str:
 
 
 def _short_cn(rdn: str) -> str:
-    """Extract CN from an RDN string."""
-    for part in rdn.split(","):
-        if "CN=" in part:
-            return part.strip().replace("CN=", "")
+    """Extract CN from an RFC 4514 RDN string, handling escaped commas."""
+    for part in _parse_rdn_parts(rdn):
+        if part.strip().startswith("CN="):
+            return part.strip().removeprefix("CN=")
     return rdn[:40]
 
 
 _ALL_CHECKS = [
-    _check_expiry,
-    _check_key_strength,
-    _check_signature,
-    _check_san,
-    _check_self_signed,
-    _check_chain,
-    _check_tls_version,
+    check_expiry,
+    check_key_strength,
+    check_signature,
+    check_san,
+    check_self_signed,
+    check_chain,
+    check_tls_version,
 ]
