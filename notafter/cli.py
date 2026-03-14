@@ -67,11 +67,12 @@ def cli():
 @click.option("--port", "-p", default=443, type=int, help="TLS port (default: 443).")
 @click.option("--warn-days", "-w", default=30, type=int, help="Days before expiry to warn (default: 30).")
 @click.option("--json-output", "--json", "json_out", is_flag=True, help="Output JSON instead of terminal.")
+@click.option("--html", "html_out", is_flag=True, help="Output self-contained HTML report.")
 @click.option("--cbom", is_flag=True, help="Output CycloneDX CBOM (implies --json).")
 @click.option("--no-revocation", is_flag=True, help="Skip revocation checks (OCSP/CRL/CT).")
 @click.option("--no-pqc", is_flag=True, help="Skip PQC readiness assessment.")
 @click.option("--timeout", "-t", default=10.0, type=float, help="Connection timeout in seconds.")
-def scan(target, is_file, port, warn_days, json_out, cbom, no_revocation, no_pqc, timeout):
+def scan(target, is_file, port, warn_days, json_out, html_out, cbom, no_revocation, no_pqc, timeout):
     """Audit a single host or certificate file.
 
     Examples:
@@ -85,7 +86,15 @@ def scan(target, is_file, port, warn_days, json_out, cbom, no_revocation, no_pqc
         notafter scan example.com --json
 
         notafter scan example.com --cbom > inventory.json
+
+        notafter scan example.com --html > report.html
     """
+    # Mutual exclusivity check
+    output_flags = sum([json_out, html_out, cbom])
+    if output_flags > 1:
+        console.print("[bold red]Error:[/bold red] --json, --html, and --cbom are mutually exclusive.")
+        sys.exit(2)
+
     from notafter.scanner.tls import scan_host, scan_file
     from notafter.checks.engine import run_checks
     from notafter.pqc.scorer import score_chain
@@ -133,6 +142,12 @@ def scan(target, is_file, port, warn_days, json_out, cbom, no_revocation, no_pqc
             revocation_report = check_revocation(result.chain[0], issuer)
 
     # Output
+    if html_out:
+        from notafter.output.html import generate_scan_html
+        html = generate_scan_html(result, audit, pqc_report, revocation_report)
+        click.echo(html)
+        sys.exit(audit.exit_code)
+
     if json_out:
         output = _build_json(result, audit, pqc_report, revocation_report)
         click.echo(json.dumps(output, indent=2, default=str))
@@ -158,9 +173,10 @@ def scan(target, is_file, port, warn_days, json_out, cbom, no_revocation, no_pqc
 @click.option("--timeout", "-t", default=10.0, type=float, help="Per-host timeout.")
 @click.option("--warn-days", "-w", default=30, type=int, help="Days before expiry to warn.")
 @click.option("--json-output", "--json", "json_out", is_flag=True, help="Output JSON.")
+@click.option("--html", "html_out", is_flag=True, help="Output self-contained HTML report.")
 @click.option("--cbom", is_flag=True, help="Output fleet-wide CBOM.")
 @click.option("--no-pqc", is_flag=True, help="Skip PQC assessment.")
-def fleet(source, port, concurrency, timeout, warn_days, json_out, cbom, no_pqc):
+def fleet(source, port, concurrency, timeout, warn_days, json_out, html_out, cbom, no_pqc):
     """Bulk scan hosts from a file or CIDR range.
 
     Examples:
@@ -172,7 +188,15 @@ def fleet(source, port, concurrency, timeout, warn_days, json_out, cbom, no_pqc)
         notafter fleet hosts.txt --json > report.json
 
         notafter fleet hosts.txt --cbom > fleet-inventory.json
+
+        notafter fleet hosts.txt --html > fleet-report.html
     """
+    # Mutual exclusivity check
+    output_flags = sum([json_out, html_out, cbom])
+    if output_flags > 1:
+        console.print("[bold red]Error:[/bold red] --json, --html, and --cbom are mutually exclusive.")
+        sys.exit(2)
+
     from notafter.scanner.fleet import load_targets, scan_fleet
     from notafter.checks.engine import run_checks
     from notafter.pqc.scorer import score_chain
@@ -185,7 +209,14 @@ def fleet(source, port, concurrency, timeout, warn_days, json_out, cbom, no_pqc)
         console.print(f"[bold red]Error:[/bold red] {e}")
         sys.exit(2)
 
-    console.print(f"[cyan]Scanning {len(targets)} hosts (concurrency: {concurrency})...[/cyan]")
+    # Use stderr for progress when outputting structured data to stdout
+    if html_out or json_out or cbom:
+        from rich.console import Console
+        progress_console = Console(stderr=True)
+    else:
+        progress_console = console
+
+    progress_console.print(f"[cyan]Scanning {len(targets)} hosts (concurrency: {concurrency})...[/cyan]")
 
     # Progress tracking
     completed = [0]
@@ -193,7 +224,7 @@ def fleet(source, port, concurrency, timeout, warn_days, json_out, cbom, no_pqc)
     def on_result(result, index, total):
         completed[0] += 1
         status = "[green]OK[/green]" if not result.error else f"[red]{result.error[:40]}[/red]"
-        console.print(f"  [{completed[0]}/{total}] {result.host}:{result.port} {status}")
+        progress_console.print(f"  [{completed[0]}/{total}] {result.host}:{result.port} {status}")
 
     # Run async fleet scan
     results = asyncio.run(scan_fleet(
@@ -234,6 +265,10 @@ def fleet(source, port, concurrency, timeout, warn_days, json_out, cbom, no_pqc)
             "warnings": audit.warning_count,
         }
 
+        # Store audit report for HTML detail expansion
+        if html_out:
+            entry["audit"] = audit
+
         if not no_pqc and r.chain:
             pqc = score_chain(
                 _build_chain_algos(r.chain),
@@ -245,7 +280,11 @@ def fleet(source, port, concurrency, timeout, warn_days, json_out, cbom, no_pqc)
 
         fleet_data.append(entry)
 
-    if json_out:
+    if html_out:
+        from notafter.output.html import generate_fleet_html
+        html = generate_fleet_html(fleet_data)
+        click.echo(html)
+    elif json_out:
         click.echo(json.dumps(fleet_data, indent=2, default=str))
     else:
         _print_fleet_summary(fleet_data, total_critical, total_warning)

@@ -1,3 +1,3 @@
-"""Output formatting — terminal (Rich) and JSON."""
+"""Output formatting — terminal (Rich), JSON, and HTML."""
 
-__all__ = ["terminal"]
+__all__ = ["terminal", "html"]
