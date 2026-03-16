@@ -143,9 +143,10 @@ def scan(target, is_file, port, warn_days, json_out, html_out, cbom, no_revocati
 
     # Output
     if html_out:
-        from notafter.output.html import generate_scan_html
-        html = generate_scan_html(result, audit, pqc_report, revocation_report)
-        click.echo(html)
+        from notafter.output.dashboard import HostReport, generate_dashboard
+        host_report = HostReport(scan=result, audit=audit, pqc=pqc_report, revocation=revocation_report)
+        sys.stdout.buffer.write(generate_dashboard([host_report]).encode("utf-8"))
+        sys.stdout.buffer.write(b"\n")
         sys.exit(audit.exit_code)
 
     if json_out:
@@ -176,7 +177,8 @@ def scan(target, is_file, port, warn_days, json_out, html_out, cbom, no_revocati
 @click.option("--html", "html_out", is_flag=True, help="Output self-contained HTML report.")
 @click.option("--cbom", is_flag=True, help="Output fleet-wide CBOM.")
 @click.option("--no-pqc", is_flag=True, help="Skip PQC assessment.")
-def fleet(source, port, concurrency, timeout, warn_days, json_out, html_out, cbom, no_pqc):
+@click.option("--no-revocation", is_flag=True, help="Skip revocation checks.")
+def fleet(source, port, concurrency, timeout, warn_days, json_out, html_out, cbom, no_pqc, no_revocation):
     """Bulk scan hosts from a file or CIDR range.
 
     Examples:
@@ -246,16 +248,51 @@ def fleet(source, port, concurrency, timeout, warn_days, json_out, html_out, cbo
         click.echo(json.dumps(fleet_cbom, indent=2, default=str))
         sys.exit(0)
 
-    # Process results
-    fleet_data = []
+    # Process results into HostReport objects
+    from notafter.output.dashboard import HostReport
+    host_reports: list[HostReport] = []
+    fleet_data: list[dict] = []
     total_critical = 0
     total_warning = 0
+
+    # Run revocation checks concurrently for all hosts
+    revocation_map: dict[str, RevocationReport] = {}
+    if not no_revocation and (html_out or json_out):
+        from notafter.revocation.checker import RevocationReport, check_revocation_async
+        rev_targets = [r for r in results if r.chain and not r.error]
+        if rev_targets:
+            async def _check_all_revocation():
+                tasks = []
+                keys = []
+                for r in rev_targets:
+                    issuer = r.chain[1] if len(r.chain) > 1 else None
+                    keys.append(f"{r.host}:{r.port}")
+                    tasks.append(check_revocation_async(r.chain[0], issuer, timeout=timeout))
+                reports = await asyncio.gather(*tasks, return_exceptions=True)
+                for key, report in zip(keys, reports):
+                    if isinstance(report, RevocationReport):
+                        revocation_map[key] = report
+            progress_console.print("[cyan]Checking revocation status...[/cyan]")
+            asyncio.run(_check_all_revocation())
 
     for r in results:
         audit = run_checks(r, warn_days)
         total_critical += audit.critical_count
         total_warning += audit.warning_count
 
+        pqc_report = None
+        if not no_pqc and r.chain:
+            pqc_report = score_chain(
+                _build_chain_algos(r.chain, with_labels=True),
+                tls_version=r.tls_version,
+                key_exchange=r.key_exchange,
+            )
+
+        rev_report = revocation_map.get(f"{r.host}:{r.port}")
+
+        host_reports.append(HostReport(scan=r, audit=audit, pqc=pqc_report, revocation=rev_report))
+
+        # Build dict for JSON / terminal summary
         entry = {
             "host": r.host,
             "port": r.port,
@@ -264,26 +301,15 @@ def fleet(source, port, concurrency, timeout, warn_days, json_out, html_out, cbo
             "critical": audit.critical_count,
             "warnings": audit.warning_count,
         }
-
-        # Store audit report for HTML detail expansion
-        if html_out:
-            entry["audit"] = audit
-
-        if not no_pqc and r.chain:
-            pqc = score_chain(
-                _build_chain_algos(r.chain),
-                tls_version=r.tls_version,
-                key_exchange=r.key_exchange,
-            )
-            entry["pqc_score"] = pqc.score
-            entry["pqc_grade"] = pqc.grade
-
+        if pqc_report:
+            entry["pqc_score"] = pqc_report.score
+            entry["pqc_grade"] = pqc_report.grade
         fleet_data.append(entry)
 
     if html_out:
-        from notafter.output.html import generate_fleet_html
-        html = generate_fleet_html(fleet_data)
-        click.echo(html)
+        from notafter.output.dashboard import generate_dashboard
+        sys.stdout.buffer.write(generate_dashboard(host_reports).encode("utf-8"))
+        sys.stdout.buffer.write(b"\n")
     elif json_out:
         click.echo(json.dumps(fleet_data, indent=2, default=str))
     else:
