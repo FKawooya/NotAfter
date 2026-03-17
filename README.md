@@ -123,6 +123,7 @@ notafter scan example.com --warn-days 60 --timeout 15
 | `--warn-days` | `-w` | 30 | Days before expiry to raise a warning |
 | `--json` | | off | Output JSON instead of rich terminal tables |
 | `--cbom` | | off | Output CycloneDX 1.6 CBOM (implies JSON) |
+| `--html` | | off | Output interactive HTML dashboard (see [UI docs](docs/UI.md)) |
 | `--no-revocation` | | off | Skip OCSP, CRL, and CT checks |
 | `--no-pqc` | | off | Skip PQC readiness assessment |
 | `--timeout` | `-t` | 10.0 | Connection timeout in seconds |
@@ -178,8 +179,48 @@ Scanning 12 hosts (concurrency: 50)...
 | `--timeout` | `-t` | 10.0 | Per-host timeout in seconds |
 | `--warn-days` | `-w` | 30 | Days before expiry to warn |
 | `--json` | | off | Output JSON |
+| `--html` | | off | Output interactive HTML dashboard (see [UI docs](docs/UI.md)) |
 | `--cbom` | | off | Output fleet-wide CycloneDX CBOM |
+| `--no-revocation` | | off | Skip revocation checks |
 | `--no-pqc` | | off | Skip PQC assessment |
+
+---
+
+### `notafter diff` -- compare scans
+
+Compare two JSON scan outputs to see what changed.
+
+```bash
+# Save a baseline
+notafter scan example.com --json > baseline.json
+
+# Later, diff against a new scan
+notafter scan example.com --json > current.json
+notafter diff baseline.json current.json
+
+# JSON output (for CI/CD)
+notafter diff baseline.json current.json --json
+
+# Fleet diff
+notafter fleet hosts.txt --json > baseline.json
+notafter diff baseline.json current.json
+```
+
+```
+$ notafter diff baseline.json current.json
+  1 change(s): 1 changed
+
+                         Diff Results
+ ┌────────────────┬──────────┬────────────────────────────┐
+ │ Host           │ Status   │ Changes                    │
+ ├────────────────┼──────────┼────────────────────────────┤
+ │ example.com:443│ CHANGED  │ Renewed: CN=example.com    │
+ │                │          │   (2026-04-27 -> 2027-12-31)│
+ │                │          │ PQC: 2/10 F -> 7/10 B      │
+ └────────────────┴──────────┴────────────────────────────┘
+```
+
+**Diff exit codes:** 0 = no changes, 1 = changes detected.
 
 ---
 
@@ -328,10 +369,12 @@ notafter/
     scorer.py               # 0-10 scoring model, CNSA 2.0 milestone tracking
   revocation/
     checker.py              # OCSP, CRL download+parse, crt.sh CT lookup
+  diff.py                    # Scan diff engine — compare two JSON outputs
   cbom/
     generator.py            # CycloneDX 1.6 CBOM generation
   output/
     terminal.py             # Rich tables, panels, color-coded findings
+    dashboard.py            # Interactive HTML dashboard (single-file, inline CSS/JS)
 ```
 
 Key design decisions:

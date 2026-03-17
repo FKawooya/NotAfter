@@ -6,11 +6,12 @@ Fonts loaded from Google Fonts CDN; falls back to system fonts offline.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from html import escape
 
 from notafter import __version__
+from notafter.cbom.generator import generate_cbom
 from notafter.checks.engine import AuditReport, Finding, Severity
 from notafter.pqc.scorer import PQCReport
 from notafter.pqc.oids import QuantumSafety
@@ -173,16 +174,19 @@ def generate_dashboard(hosts: list[HostReport]) -> str:
     # Determine which tabs to show
     has_pqc = any(h.pqc is not None for h in hosts)
     has_revocation = any(h.revocation is not None for h in hosts)
+    has_certs = any(h.scan.chain for h in hosts)
 
     # Build tab list
     tabs = ["overview"]
-    if action_items:
-        tabs.append("actions")
     tabs.append("inventory")
+    if has_certs:
+        tabs.append("timeline")
     if has_pqc:
         tabs.append("pqc")
     if has_revocation:
         tabs.append("revocation")
+    if has_certs:
+        tabs.append("cbom")
     tabs.append("hosts")
 
     # Title
@@ -206,6 +210,7 @@ def generate_dashboard(hosts: list[HostReport]) -> str:
       <span>Scanned: {ts}</span>
       <span>notafter v{_e(__version__)}</span>
     </div>
+    <button class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark theme">&#x263E;</button>
   </div>
 </div>
 """)
@@ -232,24 +237,26 @@ def generate_dashboard(hosts: list[HostReport]) -> str:
 
     # ── Tab nav ──
     tab_labels = {
-        "overview": "Overview",
-        "actions": f"Action Items ({len(action_items)})",
+        "overview": f"Overview ({len(action_items)} findings)" if action_items else "Overview",
         "inventory": f"Certificates ({len(cert_rows)})",
+        "timeline": "Timeline",
         "pqc": "PQC Posture",
         "revocation": "Revocation",
+        "cbom": "CBOM",
         "hosts": "Host Details",
     }
-    parts.append('<div class="tab-nav">')
+    parts.append('<div class="tab-nav" role="tablist">')
     for i, tab in enumerate(tabs):
         active = " active" if i == 0 else ""
-        parts.append(f'<button class="tab-btn{active}" data-tab="{tab}">{tab_labels[tab]}</button>')
+        selected = "true" if i == 0 else "false"
+        parts.append(f'<button class="tab-btn{active}" data-tab="{tab}" role="tab" aria-selected="{selected}" aria-controls="tab-{tab}">{tab_labels[tab]}</button>')
     parts.append('</div>')
 
     # ── Tab: Overview ──
-    parts.append('<div class="tab-content active" id="tab-overview">')
+    parts.append('<div class="tab-content active" id="tab-overview" role="tabpanel">')
     overview_title = "Fleet Overview" if is_fleet else "Overview"
     parts.append(f'<div class="section"><h2>{overview_title}</h2>')
-    parts.append('<div class="filter-bar"><input type="text" id="overview-filter" placeholder="Filter hosts..." class="filter-input"></div>')
+    parts.append('<div class="filter-bar"><input type="text" id="overview-filter" placeholder="Filter hosts..." class="filter-input" aria-label="Filter hosts"></div>')
     parts.append('<div class="table-wrap"><table id="overview-table">')
     parts.append('<thead><tr>')
     parts.append('<th class="sortable" data-col="0">Host</th>')
@@ -261,18 +268,28 @@ def generate_dashboard(hosts: list[HostReport]) -> str:
     parts.append('<th>Status</th>')
     parts.append('</tr></thead><tbody>')
 
+    overview_colspan = 6 if has_pqc else 5
+
     for h in hosts:
-        host_label = f"{_e(h.scan.host)}:{h.scan.port}"
+        host_label = f"{h.scan.host}:{h.scan.port}"
         if h.scan.error:
             pqc_cell = '<td style="text-align:center">&mdash;</td>' if has_pqc else ''
             parts.append(
                 f'<tr class="row-critical">'
-                f'<td class="mono">{host_label}</td>'
+                f'<td class="mono">{_e(host_label)}</td>'
                 f'<td>&mdash;</td>'
                 f'<td style="text-align:center">&mdash;</td>'
                 f'<td style="text-align:center">&mdash;</td>'
                 f'{pqc_cell}'
                 f'<td>{_pill("ERROR", _RED)}</td></tr>'
+            )
+            # Inline expand for error hosts
+            parts.append(
+                f'<tr class="overview-expand" data-expand="{_e(host_label)}" style="display:none">'
+                f'<td colspan="{overview_colspan}"><div class="inline-findings">'
+                f'<div class="finding-row"><span style="color:{_RED}">{_e(h.scan.error)}</span></div>'
+                f'<a class="detail-link" data-target="{_e(host_label)}">Full details &rarr;</a>'
+                f'</div></td></tr>'
             )
             continue
 
@@ -303,7 +320,8 @@ def generate_dashboard(hosts: list[HostReport]) -> str:
 
         parts.append(
             f'<tr class="{row_cls}" data-host="{_e(h.scan.host)}">'
-            f'<td class="mono host-link" data-target="{_e(h.scan.host)}:{h.scan.port}">{host_label}</td>'
+            f'<td class="mono host-link" data-target="{_e(host_label)}">'
+            f'<span class="host-expand-icon">&#x25B8;</span>{_e(host_label)}</td>'
             f'<td>{tls_ver}</td>'
             f'<td style="text-align:center;color:{crit_color}">{crit}</td>'
             f'<td style="text-align:center;color:{warn_color}">{warns}</td>'
@@ -311,41 +329,34 @@ def generate_dashboard(hosts: list[HostReport]) -> str:
             f'<td>{status}</td></tr>'
         )
 
+        # Inline expand row with per-host findings summary
+        non_pass = [f for f in h.audit.findings if f.severity != Severity.PASS]
+        expand_parts: list[str] = []
+        if non_pass:
+            for finding in non_pass:
+                icon = _severity_icon(finding.severity)
+                action = f' <span class="action">&mdash; {_e(finding.remediation)}</span>' if finding.remediation else ''
+                expand_parts.append(
+                    f'<div class="finding-row">{icon} '
+                    f'<span class="msg">{_e(finding.message)}</span>{action}</div>'
+                )
+        else:
+            expand_parts.append(f'<div class="finding-row"><span style="color:{_GREEN}">&#x2714; All checks passed.</span></div>')
+
+        parts.append(
+            f'<tr class="overview-expand" data-expand="{_e(host_label)}" style="display:none">'
+            f'<td colspan="{overview_colspan}"><div class="inline-findings">'
+            + "".join(expand_parts)
+            + f'<a class="detail-link" data-target="{_e(host_label)}">Full details &rarr;</a>'
+            f'</div></td></tr>'
+        )
+
     parts.append('</tbody></table></div></div></div>')
 
-    # ── Tab: Action Items ──
-    if "actions" in tabs:
-        parts.append('<div class="tab-content" id="tab-actions">')
-        parts.append('<div class="section"><h2>Action Items</h2>')
-        parts.append('<div class="filter-bar"><input type="text" id="actions-filter" placeholder="Filter actions..." class="filter-input"></div>')
-        parts.append('<div class="table-wrap"><table id="actions-table">')
-        parts.append('<thead><tr><th style="width:36px"></th><th class="sortable" data-col="1">Severity</th><th class="sortable" data-col="2">Host</th><th>Check</th><th>Component</th><th>Finding</th><th>Remediation</th></tr></thead>')
-        parts.append('<tbody>')
-
-        # Sort: critical first, then warning, then info
-        severity_order = {Severity.CRITICAL: 0, Severity.WARNING: 1, Severity.INFO: 2}
-        sorted_actions = sorted(action_items, key=lambda x: severity_order.get(x[1].severity, 9))
-
-        for host_label, f in sorted_actions:
-            rc = _severity_row_class(f.severity)
-            sev_label = f.severity.value.upper()
-            parts.append(
-                f'<tr class="{rc}">'
-                f'<td class="icon-cell">{_severity_icon(f.severity)}</td>'
-                f'<td>{sev_label}</td>'
-                f'<td class="mono" style="white-space:nowrap">{_e(host_label)}</td>'
-                f'<td class="mono" style="white-space:nowrap">{_e(f.check)}</td>'
-                f'<td>{_e(f.component)}</td>'
-                f'<td>{_e(f.message)}</td>'
-                f'<td style="color:{_MUTED}">{_e(f.remediation)}</td></tr>'
-            )
-
-        parts.append('</tbody></table></div></div></div>')
-
     # ── Tab: Certificate Inventory ──
-    parts.append('<div class="tab-content" id="tab-inventory">')
+    parts.append('<div class="tab-content" id="tab-inventory" role="tabpanel">')
     parts.append('<div class="section"><h2>Certificate Inventory</h2>')
-    parts.append('<div class="filter-bar"><input type="text" id="inventory-filter" placeholder="Filter certificates..." class="filter-input"></div>')
+    parts.append('<div class="filter-bar"><input type="text" id="inventory-filter" placeholder="Filter certificates..." class="filter-input" aria-label="Filter certificates"><button class="export-btn" onclick="exportCSV(\'inventory-table\',\'notafter-inventory\')">Export CSV</button></div>')
     parts.append('<div class="table-wrap"><table id="inventory-table">')
     parts.append('<thead><tr>')
     col_offset = 0
@@ -392,9 +403,94 @@ def generate_dashboard(hosts: list[HostReport]) -> str:
 
     parts.append('</tbody></table></div></div></div>')
 
+    # ── Tab: Timeline ──
+    if "timeline" in tabs:
+        parts.append('<div class="tab-content" id="tab-timeline" role="tabpanel">')
+        parts.append('<div class="section"><h2>Certificate Timeline</h2>')
+        parts.append(f'<p style="color:var(--text-secondary);margin-bottom:16px">Validity periods for all certificates. Vertical line marks today.</p>')
+
+        # Build timeline entries
+        tl_entries: list[dict] = []
+        now = datetime.now(timezone.utc)
+        for h in hosts:
+            if not h.scan.chain:
+                continue
+            host_label = f"{h.scan.host}:{h.scan.port}"
+            for i, c in enumerate(h.scan.chain):
+                role = "Leaf" if i == 0 else ("Root" if getattr(c, 'is_self_signed', False) and getattr(c, 'is_ca', False) else f"Int #{i}")
+                try:
+                    nb = datetime.fromisoformat(c.not_before)
+                    na = datetime.fromisoformat(c.not_after)
+                    # Normalize to UTC-aware if naive
+                    if nb.tzinfo is None:
+                        nb = nb.replace(tzinfo=timezone.utc)
+                    if na.tzinfo is None:
+                        na = na.replace(tzinfo=timezone.utc)
+                    days_left = (na - now).days
+                except (ValueError, TypeError):
+                    continue
+                if days_left < 0:
+                    color = _RED
+                elif days_left < 30:
+                    color = _YELLOW
+                else:
+                    color = _GREEN
+                tl_entries.append({
+                    "host": host_label, "role": role,
+                    "subject": c.subject or "",
+                    "nb": nb, "na": na, "color": color,
+                    "days_left": days_left,
+                })
+
+        if tl_entries:
+            # Calculate range
+            all_dates = [e["nb"] for e in tl_entries] + [e["na"] for e in tl_entries]
+            range_start = min(all_dates)
+            range_end = max(all_dates)
+            total_span = (range_end - range_start).total_seconds() or 1
+            # Pad range by 5%, minimum 30 days
+            pad_secs = max(total_span * 0.05, 86400 * 30)
+            padding = timedelta(seconds=pad_secs)
+            range_start = range_start - padding
+            range_end = range_end + padding
+            total_span = (range_end - range_start).total_seconds()
+
+            # Today marker position
+            today_pct = max(0, min(100, (now - range_start).total_seconds() / total_span * 100))
+
+            # Sort by expiry (soonest first)
+            tl_entries.sort(key=lambda e: e["na"])
+
+            # Axis labels
+            parts.append('<div class="tl-axis">')
+            parts.append(f'<span>{range_start.strftime("%Y-%m")}</span>')
+            parts.append(f'<span style="color:var(--link);font-weight:600">Today</span>')
+            parts.append(f'<span>{range_end.strftime("%Y-%m")}</span>')
+            parts.append('</div>')
+
+            for e in tl_entries:
+                left_pct = max(0, min(100, (e["nb"] - range_start).total_seconds() / total_span * 100))
+                width_pct = max(0.5, min(100 - left_pct, (e["na"] - e["nb"]).total_seconds() / total_span * 100))
+                label = f"{e['host']} / {e['role']}"
+                short_subj = (e["subject"][:30] + "...") if len(e["subject"]) > 30 else e["subject"]
+                days_txt = f"{e['days_left']}d" if e["days_left"] >= 0 else f"expired {-e['days_left']}d ago"
+                parts.append(
+                    f'<div class="tl-row">'
+                    f'<div class="tl-label mono" title="{_e(e["subject"])}">{_e(label)}<br>'
+                    f'<span style="color:var(--text-secondary);font-size:0.75rem">{_e(short_subj)} ({days_txt})</span></div>'
+                    f'<div class="tl-track">'
+                    f'<div class="tl-bar" style="left:{left_pct:.2f}%;width:{width_pct:.2f}%;background:{e["color"]}"></div>'
+                    f'<div class="tl-today" style="left:{today_pct:.2f}%"></div>'
+                    f'</div></div>'
+                )
+        else:
+            parts.append(f'<p style="color:var(--text-secondary)">No certificate data available.</p>')
+
+        parts.append('</div></div>')
+
     # ── Tab: PQC Posture ──
     if "pqc" in tabs:
-        parts.append('<div class="tab-content" id="tab-pqc">')
+        parts.append('<div class="tab-content" id="tab-pqc" role="tabpanel">')
         parts.append('<div class="section"><h2>PQC Readiness Posture</h2>')
 
         for h in hosts:
@@ -458,7 +554,7 @@ def generate_dashboard(hosts: list[HostReport]) -> str:
 
     # ── Tab: Revocation ──
     if "revocation" in tabs:
-        parts.append('<div class="tab-content" id="tab-revocation">')
+        parts.append('<div class="tab-content" id="tab-revocation" role="tabpanel">')
         parts.append('<div class="section"><h2>Revocation Status</h2>')
         parts.append('<div class="table-wrap"><table>')
         parts.append('<thead><tr>')
@@ -519,10 +615,95 @@ def generate_dashboard(hosts: list[HostReport]) -> str:
 
         parts.append('</tbody></table></div></div></div>')
 
+    # ── Tab: CBOM ──
+    if "cbom" in tabs:
+        import json as _json
+        parts.append('<div class="tab-content" id="tab-cbom" role="tabpanel">')
+        parts.append('<div class="section"><h2>Cryptographic Bill of Materials</h2>')
+        parts.append('<p style="color:var(--text-secondary);margin-bottom:16px">CycloneDX 1.6 cryptographic asset inventory across all scanned hosts.</p>')
+
+        # Build CBOM data
+        cbom_rows: list[dict] = []
+        all_cbom_components: list[dict] = []
+        for h in hosts:
+            if not h.scan.chain:
+                continue
+            cbom_data = generate_cbom(h.scan)
+            host_label = f"{h.scan.host}:{h.scan.port}"
+            for comp in cbom_data.get("components", []):
+                all_cbom_components.append(comp)
+                cp = comp.get("cryptoProperties", {})
+                algo_props = cp.get("algorithmProperties", {})
+                proto_props = cp.get("protocolProperties", {})
+                cbom_rows.append({
+                    "host": host_label,
+                    "name": comp.get("name", ""),
+                    "type": cp.get("assetType", ""),
+                    "algorithm": algo_props.get("signatureAlgorithm", "")
+                                or proto_props.get("cipherSuite", "")
+                                or algo_props.get("algorithm", ""),
+                    "key_type": algo_props.get("algorithm", proto_props.get("keyExchange", "")),
+                    "key_size": algo_props.get("keySize", ""),
+                    "quantum": cp.get("quantumReadiness", ""),
+                })
+
+        # CBOM summary table
+        parts.append(f'<div class="filter-bar"><input type="text" id="cbom-filter" placeholder="Filter assets..." class="filter-input" aria-label="Filter CBOM assets"><button class="export-btn" onclick="exportCSV(\'cbom-table\',\'notafter-cbom\')">Export CSV</button></div>')
+        parts.append('<div class="table-wrap"><table id="cbom-table">')
+        parts.append('<thead><tr>')
+        if is_fleet:
+            parts.append('<th class="sortable" data-col="0">Host</th>')
+        cbom_offset = 1 if is_fleet else 0
+        parts.append(f'<th>Asset</th><th>Type</th><th class="sortable" data-col="{cbom_offset + 2}">Algorithm</th><th>Key</th><th>Size</th><th>Quantum Readiness</th>')
+        parts.append('</tr></thead><tbody>')
+
+        for cr in cbom_rows:
+            host_cell = f'<td class="mono" style="white-space:nowrap">{_e(cr["host"])}</td>' if is_fleet else ""
+            qr = cr["quantum"]
+            if qr == "quantum_safe":
+                qr_pill = _pill("Quantum-Safe", _GREEN)
+            elif qr == "hybrid":
+                qr_pill = _pill("Hybrid", _YELLOW)
+            elif qr == "quantum_vulnerable":
+                qr_pill = _pill("Vulnerable", _RED)
+            else:
+                qr_pill = _pill(str(qr) if qr else "Unknown", _MUTED)
+            asset_type = _pill(cr["type"].upper() if cr["type"] else "?", _BLUE)
+            parts.append(
+                f'<tr>'
+                f'{host_cell}'
+                f'<td class="mono" style="font-size:0.82rem">{_e(cr["name"])}</td>'
+                f'<td>{asset_type}</td>'
+                f'<td class="mono" style="font-size:0.82rem">{_e(cr["algorithm"])}</td>'
+                f'<td class="mono">{_e(cr["key_type"])}</td>'
+                f'<td style="text-align:center">{_e(cr["key_size"]) or "&mdash;"}</td>'
+                f'<td>{qr_pill}</td>'
+                f'</tr>'
+            )
+
+        parts.append('</tbody></table></div>')
+
+        # Raw JSON view
+        fleet_cbom = {
+            "bomFormat": "CycloneDX",
+            "specVersion": "1.6",
+            "components": all_cbom_components,
+        }
+        cbom_json_str = _e(_json.dumps(fleet_cbom, indent=2, default=str))
+        parts.append(
+            f'<details style="margin-top:16px">'
+            f'<summary style="cursor:pointer;color:{_BLUE};font-size:0.88rem">View raw CycloneDX JSON</summary>'
+            f'<pre style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;padding:16px;'
+            f'margin-top:8px;overflow-x:auto;font-size:0.78rem;max-height:400px;overflow-y:auto">'
+            f'<code>{cbom_json_str}</code></pre></details>'
+        )
+
+        parts.append('</div></div>')
+
     # ── Tab: Host Details ──
-    parts.append('<div class="tab-content" id="tab-hosts">')
+    parts.append('<div class="tab-content" id="tab-hosts" role="tabpanel">')
     parts.append('<div class="section"><h2>Host Details</h2>')
-    parts.append('<div class="filter-bar"><input type="text" id="hosts-filter" placeholder="Filter hosts..." class="filter-input"></div>')
+    parts.append('<div class="filter-bar"><input type="text" id="hosts-filter" placeholder="Filter hosts..." class="filter-input" aria-label="Filter host details"></div>')
 
     for h in hosts:
         host_label = f"{h.scan.host}:{h.scan.port}"
@@ -639,11 +820,23 @@ def generate_dashboard(hosts: list[HostReport]) -> str:
 # ── Page wrapper with CSS + JS ──
 
 _CSS = """\
+/* Theme variables */
+:root {
+  --bg-primary: #0d1117; --bg-secondary: #161b22; --bg-tertiary: #21262d;
+  --border: #30363d; --text-primary: #e6edf3; --text-secondary: #8b949e;
+  --text-muted: #484f58; --link: #58a6ff;
+}
+.light-theme {
+  --bg-primary: #ffffff; --bg-secondary: #f6f8fa; --bg-tertiary: #e1e4e8;
+  --border: #d0d7de; --text-primary: #1f2328; --text-secondary: #656d76;
+  --text-muted: #8b949e; --link: #0969da;
+}
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html { scroll-behavior: smooth; }
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background: #0d1117; color: #e6edf3; line-height: 1.6;
+  background: var(--bg-primary); color: var(--text-primary); line-height: 1.6;
   -webkit-font-smoothing: antialiased; padding: 0; margin: 0;
 }
 .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
@@ -652,18 +845,24 @@ code, .mono { font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
 
 /* Header */
 .report-header {
-  background: #161b22; border-bottom: 1px solid #30363d;
-  padding: 32px 0; margin-bottom: 32px;
+  background: var(--bg-secondary); border-bottom: 1px solid var(--border);
+  padding: 32px 0; margin-bottom: 32px; position: relative;
 }
 .report-header h1 { font-size: 1.75rem; font-weight: 800; margin-bottom: 4px; }
-.report-header .meta { color: #8b949e; font-size: 0.85rem; }
+.report-header .meta { color: var(--text-secondary); font-size: 0.85rem; }
 .report-header .meta span { margin-right: 18px; }
+.theme-toggle {
+  position: absolute; top: 16px; right: 24px; border: none; background: transparent;
+  color: var(--text-secondary); font-size: 1.3rem; cursor: pointer; padding: 4px 8px;
+  border-radius: 6px; transition: color 0.2s;
+}
+.theme-toggle:hover { color: var(--text-primary); }
 
 /* Section */
 .section { margin-bottom: 32px; }
 .section h2 {
   font-size: 1.2rem; font-weight: 700; margin-bottom: 16px;
-  padding-bottom: 8px; border-bottom: 1px solid #30363d;
+  padding-bottom: 8px; border-bottom: 1px solid var(--border);
 }
 
 /* Stat cards */
@@ -671,8 +870,8 @@ code, .mono { font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
   display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 24px;
 }
 .stat-card {
-  flex: 1; min-width: 120px; background: #161b22;
-  border: 1px solid #30363d; border-radius: 10px;
+  flex: 1; min-width: 120px; background: var(--bg-secondary);
+  border: 1px solid var(--border); border-radius: 10px;
   padding: 20px; text-align: center;
 }
 .stat-card .stat-value {
@@ -680,22 +879,22 @@ code, .mono { font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
   font-family: 'JetBrains Mono', monospace; line-height: 1;
 }
 .stat-card .stat-label {
-  font-size: 0.82rem; color: #8b949e; margin-top: 4px; font-weight: 500;
+  font-size: 0.82rem; color: var(--text-secondary); margin-top: 4px; font-weight: 500;
 }
 
 /* Tab navigation */
 .tab-nav {
-  display: flex; gap: 4px; border-bottom: 2px solid #30363d;
+  display: flex; gap: 4px; border-bottom: 2px solid var(--border);
   margin-bottom: 24px; flex-wrap: wrap;
 }
 .tab-btn {
   padding: 10px 20px; border: none; background: transparent;
-  color: #8b949e; cursor: pointer; font-size: 0.88rem; font-weight: 600;
+  color: var(--text-secondary); cursor: pointer; font-size: 0.88rem; font-weight: 600;
   border-bottom: 2px solid transparent; margin-bottom: -2px;
   font-family: inherit; transition: color 0.2s;
 }
-.tab-btn:hover { color: #e6edf3; }
-.tab-btn.active { color: #58a6ff; border-bottom-color: #58a6ff; }
+.tab-btn:hover { color: var(--text-primary); }
+.tab-btn.active { color: var(--link); border-bottom-color: var(--link); }
 
 /* Tab content */
 .tab-content { display: none; }
@@ -705,12 +904,12 @@ code, .mono { font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
 .filter-bar { margin-bottom: 12px; }
 .filter-input {
   width: 100%; max-width: 400px; padding: 8px 14px;
-  background: #161b22; border: 1px solid #30363d; border-radius: 6px;
-  color: #e6edf3; font-size: 0.88rem; font-family: inherit;
+  background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text-primary); font-size: 0.88rem; font-family: inherit;
   outline: none; transition: border-color 0.2s;
 }
-.filter-input:focus { border-color: #58a6ff; }
-.filter-input::placeholder { color: #484f58; }
+.filter-input:focus { border-color: var(--link); }
+.filter-input::placeholder { color: var(--text-muted); }
 
 /* Tables */
 table {
@@ -719,15 +918,15 @@ table {
 }
 th, td {
   text-align: left; padding: 10px 14px;
-  border-bottom: 1px solid #21262d;
+  border-bottom: 1px solid var(--bg-tertiary);
 }
 th {
-  color: #8b949e; font-weight: 600; font-size: 0.78rem;
+  color: var(--text-secondary); font-weight: 600; font-size: 0.78rem;
   text-transform: uppercase; letter-spacing: 0.04em;
-  background: #161b22; position: sticky; top: 0;
+  background: var(--bg-secondary); position: sticky; top: 0;
 }
 th.sortable { cursor: pointer; user-select: none; }
-th.sortable:hover { color: #e6edf3; }
+th.sortable:hover { color: var(--text-primary); }
 th.sortable::after { content: ' \\25B2\\25BC'; font-size: 0.55rem; }
 .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
@@ -746,11 +945,22 @@ th.sortable::after { content: ' \\25B2\\25BC'; font-size: 0.55rem; }
 
 /* Host link */
 .host-link { cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; }
-.host-link:hover { color: #58a6ff; }
+.host-link:hover { color: var(--link); }
+.host-expand-icon { color: var(--text-secondary); font-size: 0.7rem; display: inline-block; margin-right: 6px; transition: transform 0.2s; }
+.host-expand-icon.open { transform: rotate(90deg); }
+
+/* Inline findings (overview expand) */
+.overview-expand > td { padding: 4px 16px 12px 16px; background: var(--bg-secondary); border-bottom: 1px solid var(--border); }
+.inline-findings { font-size: 0.85rem; padding: 4px 0; }
+.inline-findings .finding-row { padding: 3px 0; display: flex; gap: 8px; align-items: baseline; }
+.inline-findings .finding-row .msg { color: var(--text-primary); }
+.inline-findings .finding-row .action { color: var(--text-secondary); }
+.detail-link { color: var(--link); font-size: 0.82rem; cursor: pointer; text-decoration: none; margin-top: 6px; display: inline-block; }
+.detail-link:hover { text-decoration: underline; }
 
 /* PQC panel */
 .pqc-panel {
-  background: #161b22; border: 1px solid #30363d; border-radius: 10px;
+  background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px;
   padding: 24px; margin-bottom: 24px;
 }
 .pqc-score-row {
@@ -763,47 +973,79 @@ th.sortable::after { content: ' \\25B2\\25BC'; font-size: 0.55rem; }
   justify-content: center; font-weight: 800; border: 3px solid;
 }
 .pqc-score-circle .score { font-size: 1.3rem; line-height: 1; }
-.pqc-info { color: #8b949e; font-size: 0.88rem; }
+.pqc-info { color: var(--text-secondary); font-size: 0.88rem; }
 .pqc-grade {
   font-size: 2rem; font-weight: 800;
   font-family: 'JetBrains Mono', monospace;
 }
 .rec-list { list-style: none; padding: 0; margin-top: 12px; }
 .rec-list li {
-  padding: 6px 0; color: #e6edf3; font-size: 0.88rem;
-  border-bottom: 1px solid #21262d;
+  padding: 6px 0; color: var(--text-primary); font-size: 0.88rem;
+  border-bottom: 1px solid var(--bg-tertiary);
 }
-.rec-list li::before { content: "> "; color: #8b949e; font-family: 'JetBrains Mono', monospace; }
+.rec-list li::before { content: "> "; color: var(--text-secondary); font-family: 'JetBrains Mono', monospace; }
 
 /* Cert details grid */
 .cert-grid {
   display: grid; grid-template-columns: 140px 1fr;
   gap: 4px 16px; font-size: 0.88rem; margin-bottom: 16px;
 }
-.cert-grid dt { color: #8b949e; font-weight: 600; }
-.cert-grid dd { color: #e6edf3; word-break: break-all; }
+.cert-grid dt { color: var(--text-secondary); font-weight: 600; }
+.cert-grid dd { color: var(--text-primary); word-break: break-all; }
 
 /* Host details (expand/collapse) */
 .host-detail-block { margin-bottom: 2px; }
 .host-summary {
   cursor: pointer; list-style: none; padding: 12px 16px;
-  background: #161b22; border: 1px solid #30363d; border-radius: 6px;
+  background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px;
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
 }
 .host-summary::-webkit-details-marker { display: none; }
 .host-summary::marker { display: none; }
-.host-summary::before { content: '\\25B8'; color: #8b949e; font-size: 0.8rem; transition: transform 0.2s; }
+.host-summary::before { content: '\\25B8'; color: var(--text-secondary); font-size: 0.8rem; transition: transform 0.2s; }
 details[open] > .host-summary::before { transform: rotate(90deg); }
 .host-summary.host-error { border-color: rgba(248,81,73,0.3); }
 .host-details {
-  padding: 16px 20px; background: #0d1117;
-  border: 1px solid #21262d; border-top: none; border-radius: 0 0 6px 6px;
+  padding: 16px 20px; background: var(--bg-primary);
+  border: 1px solid var(--bg-tertiary); border-top: none; border-radius: 0 0 6px 6px;
 }
 
 /* Footer */
 .report-footer {
-  margin-top: 48px; padding: 24px 0; border-top: 1px solid #30363d;
-  text-align: center; color: #8b949e; font-size: 0.82rem;
+  margin-top: 48px; padding: 24px 0; border-top: 1px solid var(--border);
+  text-align: center; color: var(--text-secondary); font-size: 0.82rem;
+}
+
+/* Export button */
+.export-btn {
+  padding: 6px 14px; margin-left: 12px; background: var(--bg-tertiary);
+  border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary);
+  font-size: 0.82rem; cursor: pointer; font-family: inherit;
+  vertical-align: middle;
+}
+.export-btn:hover { background: var(--border); }
+
+/* Timeline */
+.tl-axis {
+  display: flex; justify-content: space-between; font-size: 0.75rem;
+  color: var(--text-secondary); margin-bottom: 8px; padding: 0 0 0 200px;
+}
+.tl-row { display: flex; gap: 12px; align-items: center; margin-bottom: 4px; min-height: 32px; }
+.tl-label {
+  width: 200px; min-width: 200px; font-size: 0.78rem; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.tl-track {
+  flex: 1; position: relative; background: var(--bg-tertiary);
+  border-radius: 4px; height: 18px;
+}
+.tl-bar {
+  position: absolute; top: 2px; bottom: 2px; border-radius: 3px;
+  min-width: 2px; opacity: 0.85;
+}
+.tl-today {
+  position: absolute; width: 2px; background: var(--link);
+  top: -4px; bottom: -4px; z-index: 1; opacity: 0.9;
 }
 
 /* Responsive */
@@ -814,6 +1056,29 @@ details[open] > .host-summary::before { transform: rotate(90deg); }
   .stat-cards { flex-direction: column; }
   th, td { padding: 8px 10px; font-size: 0.82rem; }
   .tab-btn { padding: 8px 12px; font-size: 0.82rem; }
+  .tl-label { width: 120px; min-width: 120px; }
+  .tl-axis { padding-left: 132px; }
+}
+
+/* Print */
+@media print {
+  body { --bg-primary: #fff; --bg-secondary: #f6f8fa; --bg-tertiary: #e1e4e8;
+    --border: #d0d7de; --text-primary: #1a1a1a; --text-secondary: #555; --text-muted: #888;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .tab-nav { display: none; }
+  .theme-toggle { display: none; }
+  .tab-content { display: block !important; page-break-inside: avoid; margin-bottom: 24px; }
+  .filter-bar { display: none; }
+  .export-btn { display: none; }
+  .row-critical { background: rgba(248,81,73,0.15) !important; }
+  .row-warning { background: rgba(210,153,34,0.15) !important; }
+  .row-pass { background: rgba(63,185,80,0.10) !important; }
+  details { break-inside: avoid; }
+  details[open] > .host-details { display: block; }
+  .overview-expand { display: table-row !important; }
+  .host-expand-icon { display: none; }
+  .detail-link { display: none; }
+  a { color: #0366d6; }
 }
 """
 
@@ -822,31 +1087,47 @@ _JS = """\
   /* Tab switching */
   document.querySelectorAll('.tab-btn').forEach(function(btn){
     btn.addEventListener('click', function(){
-      document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
+      document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); b.setAttribute('aria-selected','false'); });
       document.querySelectorAll('.tab-content').forEach(function(c){ c.classList.remove('active'); });
       btn.classList.add('active');
+      btn.setAttribute('aria-selected','true');
       var target = document.getElementById('tab-' + btn.dataset.tab);
       if(target) target.classList.add('active');
     });
   });
 
-  /* Host link click - switch to hosts tab and open detail */
+  /* Host link click - toggle inline expand */
   document.querySelectorAll('.host-link').forEach(function(link){
-    link.addEventListener('click', function(){
+    link.addEventListener('click', function(e){
+      e.preventDefault();
       var hostId = link.dataset.target;
-      /* Switch to hosts tab */
-      document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
+      var expandRow = document.querySelector('.overview-expand[data-expand="' + hostId + '"]');
+      if(!expandRow) return;
+      var isOpen = expandRow.style.display !== 'none';
+      /* Close all expand rows */
+      document.querySelectorAll('.overview-expand').forEach(function(r){ r.style.display = 'none'; });
+      document.querySelectorAll('.host-expand-icon').forEach(function(ic){ ic.classList.remove('open'); });
+      if(!isOpen){
+        expandRow.style.display = '';
+        var icon = link.querySelector('.host-expand-icon');
+        if(icon) icon.classList.add('open');
+      }
+    });
+  });
+
+  /* Detail link - switch to hosts tab and open detail */
+  document.querySelectorAll('.detail-link').forEach(function(link){
+    link.addEventListener('click', function(e){
+      e.stopPropagation();
+      var hostId = link.dataset.target;
+      document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); b.setAttribute('aria-selected','false'); });
       document.querySelectorAll('.tab-content').forEach(function(c){ c.classList.remove('active'); });
       var hostsBtn = document.querySelector('.tab-btn[data-tab="hosts"]');
       var hostsTab = document.getElementById('tab-hosts');
-      if(hostsBtn) hostsBtn.classList.add('active');
+      if(hostsBtn){ hostsBtn.classList.add('active'); hostsBtn.setAttribute('aria-selected','true'); }
       if(hostsTab) hostsTab.classList.add('active');
-      /* Open the matching detail block */
       document.querySelectorAll('.host-detail-block').forEach(function(d){
-        if(d.dataset.host === hostId){
-          d.open = true;
-          d.scrollIntoView({behavior:'smooth', block:'start'});
-        }
+        if(d.dataset.host === hostId){ d.open = true; d.scrollIntoView({behavior:'smooth', block:'start'}); }
       });
     });
   });
@@ -859,13 +1140,16 @@ _JS = """\
     input.addEventListener('input', function(){
       var q = input.value.toLowerCase();
       table.querySelectorAll('tbody tr').forEach(function(row){
+        if(row.classList.contains('overview-expand')){ row.style.display = 'none'; return; }
         row.style.display = row.textContent.toLowerCase().indexOf(q) >= 0 ? '' : 'none';
       });
+      /* Collapse all expand icons */
+      document.querySelectorAll('.host-expand-icon').forEach(function(ic){ ic.classList.remove('open'); });
     });
   }
   setupFilter('overview-filter', 'overview-table');
-  setupFilter('actions-filter', 'actions-table');
   setupFilter('inventory-filter', 'inventory-table');
+  setupFilter('cbom-filter', 'cbom-table');
   /* Host details filter */
   var hostsInput = document.getElementById('hosts-filter');
   if(hostsInput){
@@ -882,7 +1166,7 @@ _JS = """\
     th.addEventListener('click', function(){
       var table = th.closest('table');
       var tbody = table.querySelector('tbody');
-      var rows = Array.from(tbody.querySelectorAll('tr'));
+      var rows = Array.from(tbody.querySelectorAll('tr:not(.overview-expand)'));
       var col = parseInt(th.dataset.col);
       var asc = th.dataset.sort !== 'asc';
       th.dataset.sort = asc ? 'asc' : 'desc';
@@ -894,9 +1178,73 @@ _JS = """\
         if(!isNaN(aNum) && !isNaN(bNum)) return asc ? aNum - bNum : bNum - aNum;
         return asc ? aText.localeCompare(bText) : bText.localeCompare(aText);
       });
-      rows.forEach(function(r){ tbody.appendChild(r); });
+      rows.forEach(function(r){
+        tbody.appendChild(r);
+        var hostCell = r.querySelector('.host-link');
+        if(hostCell){
+          var ex = tbody.querySelector('.overview-expand[data-expand="' + hostCell.dataset.target + '"]');
+          if(ex) tbody.appendChild(ex);
+        }
+      });
     });
   });
+})();
+
+/* Print: expand all details, restore after */
+window.addEventListener('beforeprint', function(){
+  document.querySelectorAll('details').forEach(function(d){
+    d._wasOpen = d.open; d.open = true;
+  });
+});
+window.addEventListener('afterprint', function(){
+  document.querySelectorAll('details').forEach(function(d){
+    if(d._wasOpen !== undefined) d.open = d._wasOpen;
+  });
+});
+
+/* CSV export - called from onclick */
+function exportCSV(tableId, prefix) {
+  var table = document.getElementById(tableId);
+  if (!table) return;
+  var csv = [];
+  var headers = [];
+  table.querySelectorAll('thead th').forEach(function(th) {
+    headers.push('"' + th.textContent.trim().replace(/"/g, '""') + '"');
+  });
+  csv.push(headers.join(','));
+  table.querySelectorAll('tbody tr').forEach(function(row) {
+    if (row.style.display === 'none') return;
+    var cells = [];
+    row.querySelectorAll('td').forEach(function(td) {
+      cells.push('"' + td.textContent.trim().replace(/"/g, '""') + '"');
+    });
+    csv.push(cells.join(','));
+  });
+  var blob = new Blob([csv.join('\\n')], {type: 'text/csv;charset=utf-8'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  var d = new Date().toISOString().slice(0, 10);
+  a.download = prefix + '-' + d + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/* Theme toggle */
+function toggleTheme() {
+  var el = document.documentElement;
+  el.classList.toggle('light-theme');
+  var isLight = el.classList.contains('light-theme');
+  try { localStorage.setItem('notafter-theme', isLight ? 'light' : 'dark'); } catch(e) {}
+  var btn = document.querySelector('.theme-toggle');
+  if (btn) btn.textContent = isLight ? '\\u263C' : '\\u263E';
+}
+/* Sync toggle icon if theme was set in <head> */
+(function(){
+  var btn = document.querySelector('.theme-toggle');
+  if (btn && document.documentElement.classList.contains('light-theme')) btn.textContent = '\\u263C';
 })();
 """
 
@@ -915,6 +1263,7 @@ def _page_wrapper(title: str, body: str) -> str:
 <style>
 {_CSS}
 </style>
+<script>try{{if(localStorage.getItem('notafter-theme')==='light')document.documentElement.classList.add('light-theme')}}catch(e){{}}</script>
 </head>
 <body>
 {body}

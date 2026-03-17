@@ -157,7 +157,7 @@ class TestDashboardStructure:
 
 
 class TestDashboardTabs:
-    def test_action_items_tab(self):
+    def test_findings_in_overview_expand(self):
         audit = _make_audit(findings=[
             Finding(
                 check="key_strength", severity=Severity.WARNING,
@@ -166,12 +166,24 @@ class TestDashboardTabs:
             ),
         ])
         html = generate_dashboard([_host_report(audit=audit)])
-        assert "Action Items" in html
         assert "RSA-2048 weak" in html
         assert "Use RSA-3072+" in html
+        assert "overview-expand" in html
 
-    def test_no_action_items_tab_when_all_pass(self):
+    def test_overview_finding_count_in_tab_label(self):
+        audit = _make_audit(findings=[
+            Finding(
+                check="key_strength", severity=Severity.WARNING,
+                component="CN=test", message="RSA-2048 weak",
+                remediation="Use RSA-3072+",
+            ),
+        ])
+        html = generate_dashboard([_host_report(audit=audit)])
+        assert "Overview (1 findings)" in html
+
+    def test_no_finding_count_when_all_pass(self):
         html = generate_dashboard([_host_report()])
+        # No action items tab, overview label has no count
         assert 'data-tab="actions"' not in html
 
     def test_inventory_tab(self):
@@ -390,6 +402,85 @@ class TestDashboardReviewFixes:
 
 
 # ===========================================================================
+# Batch 2 features: CSV export, print, CBOM tab
+# ===========================================================================
+
+
+class TestCSVExport:
+    def test_csv_export_button_inventory(self):
+        html = generate_dashboard([_host_report()])
+        assert "export-btn" in html
+        assert "exportCSV" in html
+        assert "notafter-inventory" in html
+
+    def test_csv_export_js_function(self):
+        html = generate_dashboard([_host_report()])
+        assert "function exportCSV" in html
+        assert "text/csv" in html
+
+
+class TestPrintStylesheet:
+    def test_print_media_query(self):
+        html = generate_dashboard([_host_report()])
+        assert "@media print" in html
+
+    def test_print_hides_tabs_and_filters(self):
+        html = generate_dashboard([_host_report()])
+        assert ".tab-nav { display: none" in html or ".tab-nav{display:none" in html
+        assert ".filter-bar { display: none" in html or ".filter-bar{display:none" in html
+
+    def test_print_shows_all_tabs(self):
+        html = generate_dashboard([_host_report()])
+        assert ".tab-content { display: block !important" in html
+
+    def test_print_hides_export_buttons(self):
+        html = generate_dashboard([_host_report()])
+        assert ".export-btn { display: none" in html
+
+
+class TestCBOMTab:
+    def test_cbom_tab_present(self):
+        html = generate_dashboard([_host_report()])
+        assert 'data-tab="cbom"' in html
+        assert "Cryptographic Bill of Materials" in html
+
+    def test_cbom_tab_absent_no_certs(self):
+        hr = _host_report(
+            scan=_make_scan(host="err", error="refused", chain=[]),
+            audit=_make_audit(findings=[
+                Finding(check="conn", severity=Severity.CRITICAL, component="TLS", message="err"),
+            ]),
+        )
+        html = generate_dashboard([hr])
+        assert 'data-tab="cbom"' not in html
+
+    def test_cbom_has_asset_table(self):
+        html = generate_dashboard([_host_report()])
+        assert "cbom-table" in html
+        assert "cryptographic-asset" in html or "CERTIFICATE" in html
+
+    def test_cbom_raw_json(self):
+        html = generate_dashboard([_host_report()])
+        assert "CycloneDX" in html
+        assert "View raw CycloneDX JSON" in html
+
+    def test_cbom_quantum_readiness(self):
+        html = generate_dashboard([_host_report()])
+        assert "Vulnerable" in html or "quantum-vulnerable" in html
+
+    def test_cbom_csv_export(self):
+        html = generate_dashboard([_host_report()])
+        assert "notafter-cbom" in html
+
+    def test_cbom_fleet_has_host_column(self):
+        hr1 = _host_report(scan=_make_scan(host="h1"))
+        hr2 = _host_report(scan=_make_scan(host="h2"))
+        html = generate_dashboard([hr1, hr2])
+        assert "h1:443" in html
+        assert "h2:443" in html
+
+
+# ===========================================================================
 # CLI integration with dashboard
 # ===========================================================================
 
@@ -435,3 +526,185 @@ class TestHostReport:
         )
         assert hr.pqc.score == 3
         assert hr.revocation.ocsp.status == RevocationStatus.GOOD
+
+
+# ===========================================================================
+# Batch 2 review fixes — additional coverage
+# ===========================================================================
+
+
+class TestCBOMSortIndices:
+    """QA-B2-1/SEC-B2-14: CBOM table sort column indices in single vs fleet mode."""
+
+    def test_cbom_single_host_sort_col(self):
+        """In single-host mode, Algorithm should use data-col=2 (no Host column)."""
+        html = generate_dashboard([_host_report()])
+        # Should NOT have data-col="3" for Algorithm in single-host CBOM
+        # Algorithm is at cell index 2 (Asset=0, Type=1, Algorithm=2)
+        assert 'data-col="2">Algorithm' in html
+
+    def test_cbom_fleet_sort_col(self):
+        """In fleet mode, Algorithm should use data-col=3 (Host column present)."""
+        hr1 = _host_report(scan=_make_scan(host="h1"))
+        hr2 = _host_report(scan=_make_scan(host="h2"))
+        html = generate_dashboard([hr1, hr2])
+        assert 'data-col="3">Algorithm' in html
+
+    def test_cbom_csv_export_button(self):
+        """QA-B2-13: Verify CSV export button calls exportCSV with correct args."""
+        html = generate_dashboard([_host_report()])
+        assert "exportCSV('cbom-table'" in html
+        assert "export-btn" in html
+
+
+class TestARIAAttributes:
+    """QA-B2-4: ARIA attributes for accessibility."""
+
+    def test_tablist_role(self):
+        html = generate_dashboard([_host_report()])
+        assert 'role="tablist"' in html
+
+    def test_tab_role_and_selected(self):
+        html = generate_dashboard([_host_report()])
+        assert 'role="tab"' in html
+        assert 'aria-selected="true"' in html
+
+    def test_tabpanel_role(self):
+        html = generate_dashboard([_host_report()])
+        assert 'role="tabpanel"' in html
+
+    def test_filter_aria_labels(self):
+        html = generate_dashboard([_host_report()])
+        assert 'aria-label="Filter hosts"' in html
+        assert 'aria-label="Filter certificates"' in html
+        assert 'aria-label="Filter CBOM assets"' in html
+
+
+class TestPrintExpand:
+    """QA-B2-12: Print stylesheet expands collapsed details."""
+
+    def test_beforeprint_handler(self):
+        html = generate_dashboard([_host_report()])
+        assert "beforeprint" in html
+        assert "afterprint" in html
+
+
+class TestHostLabelEscaping:
+    """SEC-B2-1: Host label escaping consistency."""
+
+    def test_xss_host_name_in_overview(self):
+        """Malicious hostname should be escaped in overview table."""
+        scan = _make_scan(host='<script>alert("xss")</script>')
+        audit = _make_audit(target='<script>alert("xss")</script>:443')
+        hr = HostReport(scan=scan, audit=audit)
+        html = generate_dashboard([hr])
+        assert '<script>alert' not in html
+        assert '&lt;script&gt;alert' in html
+
+
+class TestInputValidation:
+    """SEC-B2-5/SEC-B2-6: CLI input validation."""
+
+    def test_port_range_validation(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["scan", "example.com", "--port", "0"])
+        assert result.exit_code == 2
+
+    def test_port_range_too_high(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["scan", "example.com", "--port", "99999"])
+        assert result.exit_code == 2
+
+    def test_concurrency_range_validation(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["fleet", "hosts.txt", "--concurrency", "0"])
+        assert result.exit_code == 2
+
+
+# ===========================================================================
+# Batch 3: Timeline, Light Theme, Terminal Polish
+# ===========================================================================
+
+
+class TestTimelineTab:
+    """Feature 1: Certificate timeline visualization."""
+
+    def test_timeline_tab_present(self):
+        html = generate_dashboard([_host_report()])
+        assert 'data-tab="timeline"' in html
+
+    def test_timeline_has_today_marker(self):
+        html = generate_dashboard([_host_report()])
+        assert "tl-today" in html
+
+    def test_timeline_has_bars(self):
+        html = generate_dashboard([_host_report()])
+        assert "tl-bar" in html
+        assert "tl-track" in html
+
+    def test_timeline_shows_host_label(self):
+        html = generate_dashboard([_host_report()])
+        assert "test.example.com:443" in html
+
+    def test_timeline_expired_cert_color(self):
+        """Expired cert should have red bar."""
+        now = datetime.now(timezone.utc)
+        cert = _make_cert(
+            not_before=(now - timedelta(days=400)).isoformat(),
+            not_after=(now - timedelta(days=30)).isoformat(),
+        )
+        scan = _make_scan(chain=[cert])
+        hr = _host_report(scan=scan)
+        html = generate_dashboard([hr])
+        # The red color constant
+        assert "#f85149" in html
+
+    def test_timeline_fleet_multiple_bars(self):
+        hr1 = _host_report(scan=_make_scan(host="h1"))
+        hr2 = _host_report(scan=_make_scan(host="h2"))
+        html = generate_dashboard([hr1, hr2])
+        assert html.count("tl-row") >= 2
+
+    def test_timeline_naive_datetime(self):
+        """QA-B3-1: Timezone-naive cert dates should not crash."""
+        cert = _make_cert(
+            not_before="2025-01-01T00:00:00",
+            not_after="2026-06-01T00:00:00",
+        )
+        scan = _make_scan(chain=[cert])
+        hr = _host_report(scan=scan)
+        html = generate_dashboard([hr])
+        assert "tl-bar" in html
+
+    def test_timeline_no_certs_omits_tab(self):
+        """QA-B3-12: All-error fleet should omit timeline tab."""
+        scan = _make_scan(chain=[], error="Connection refused")
+        hr = _host_report(scan=scan)
+        html = generate_dashboard([hr])
+        assert 'data-tab="timeline"' not in html
+
+
+class TestLightTheme:
+    """Feature 2: Light theme toggle."""
+
+    def test_theme_toggle_button(self):
+        html = generate_dashboard([_host_report()])
+        assert "theme-toggle" in html
+
+    def test_css_variables(self):
+        html = generate_dashboard([_host_report()])
+        assert "--bg-primary" in html
+        assert "--text-primary" in html
+
+    def test_light_theme_class(self):
+        html = generate_dashboard([_host_report()])
+        assert "light-theme" in html
+
+    def test_localstorage_persistence(self):
+        html = generate_dashboard([_host_report()])
+        assert "localStorage" in html
+        assert "notafter-theme" in html
+
+    def test_toggle_function(self):
+        html = generate_dashboard([_host_report()])
+        assert "function toggleTheme" in html

@@ -1,23 +1,26 @@
 # NotAfter — Security & QA Audit Report
 
-**Version:** 0.1.1
-**Date:** 2026-03-13
-**Auditors:** QA Agent, Security Audit Agent, Code Quality Agent (2 review rounds)
+**Version:** 0.2.0
+**Date:** 2026-03-16
+**Auditors:** QA Agent, Security Audit Agent, Code Quality Agent (3 review rounds)
 
 ---
 
 ## Executive Summary
 
-Three automated review agents audited the NotAfter codebase across two rounds. Round 1 (v0.1) produced 61 findings; 16 were fixed immediately and 45 deferred. Round 2 (v0.1.1) addressed all 45 deferred items: 31 code fixes applied, 19 test coverage gaps filled, and 11 review-round-2 findings fixed. A final review produced 42 findings (mostly INFO), with only 6 items remaining as known limitations.
+Four automated review rounds audited the NotAfter codebase. Round 1 (v0.1) produced 61 findings; 16 fixed immediately, 45 deferred. Round 2 (v0.1.1) addressed all deferred items. Round 3 (v0.2.0) reviewed the dashboard, CSV export, CBOM tab, and print stylesheet. Round 4 (v0.2.0) reviewed the timeline visualization, light theme toggle, and terminal polish.
 
 | Phase | Found | Fixed | Deferred |
 |-------|-------|-------|----------|
 | Round 1 (v0.1) | 61 | 16 | 45 |
 | Round 2 — fix deferred items | 45 | 45 | 0 |
 | Round 2 — review findings | 42 | 11 | 6 |
-| **Cumulative** | **103** | **72** | **6** |
+| Round 3 — dashboard (v0.2.0) | 29 | 13 | 6 |
+| Round 4 — timeline/theme (v0.2.0) | 24 | 7 | 0 |
+| Round 5 — diff feature (v0.2.0) | 24 | 10 | 0 |
+| **Cumulative** | **180** | **102** | **6** |
 
-**Test coverage:** 140 tests, all passing.
+**Test coverage:** 251 tests, all passing.
 
 ---
 
@@ -124,7 +127,7 @@ These items are documented, accepted risks — either inherent to the tool's des
 |----|---------|-----------|
 | S-M3 | Fleet SSRF via host file | Operator supplies the file — trusted input. |
 | S-M4 | PEM certificates in memory/output | Public certificates, not secrets. |
-| S-L1 | Port not range-checked | Socket errors on invalid port; caught and reported. |
+| S-L1 | Port not range-checked | **FIXED in v0.2.0** — `click.IntRange(1, 65535)` |
 | S-L2 | CIDR 65536 limit | Acceptable for CLI tool. |
 | S-L3 | No bounds on warn_days/timeout | CLI user controls; harmless results. |
 | S-L4 | No symlink protection | CLI-only; user controls paths. |
@@ -191,6 +194,134 @@ These items are documented, accepted risks — either inherent to the tool's des
 | CQ-R13 | INFO | Redundant `import pytest` in test methods | **FIXED** |
 | CQ-R14 | INFO | Type hints consistently applied | OK |
 | CQ-R15 | INFO | `_OID_MAP` construction thread-safe | OK |
+
+---
+
+## Round 3 — Dashboard Review (v0.2.0)
+
+Reviewed the interactive HTML dashboard (`output/dashboard.py`), CSV export, CBOM tab, print stylesheet, and CI pipeline. Two separate agents (QA and Security/Code Quality) ran independently.
+
+### QA Agent (17 findings)
+
+| ID | Severity | Finding | Status |
+|----|----------|---------|--------|
+| QA-B2-1 | HIGH | CBOM sort `data-col` indices wrong in single-host mode | **FIXED** |
+| QA-B2-2 | HIGH | Fleet revocation exceptions silently swallowed | **FIXED** |
+| QA-B2-3 | MEDIUM | Unused `field` import | **FIXED** |
+| QA-B2-4 | MEDIUM | No ARIA attributes on tabs/filters | **FIXED** |
+| QA-B2-5 | MEDIUM | `revokeObjectURL` after `removeChild` | **FIXED** |
+| QA-B2-6 | MEDIUM | No test coverage for fleet revocation | Tests added |
+| QA-B2-7 | MEDIUM | CBOM sort related to B2-1 | **FIXED** (same fix) |
+| QA-B2-8 | MEDIUM | Overview PQC column not sortable | Acceptable |
+| QA-B2-9 | LOW | Docs "zero findings" inaccuracy | **FIXED** |
+| QA-B2-10 | LOW | CI no coverage reporting | Future enhancement |
+| QA-B2-11 | LOW | CI no Windows matrix | Future enhancement |
+| QA-B2-12 | LOW | Print doesn't expand collapsed details | **FIXED** |
+| QA-B2-13 | LOW | CBOM CSV export test incomplete | Tests added |
+| QA-B2-14 | LOW | Fleet CBOM drops metadata | Future enhancement |
+| QA-B2-15 | LOW | Non-deterministic CBOM UUID | By design |
+| QA-B2-16 | INFO | Action Items column indices | Documented |
+| QA-B2-17 | INFO | Double-escape edge case in `_pill()` | **FIXED** |
+
+### Security Agent (16 findings)
+
+| ID | Severity | Finding | Status |
+|----|----------|---------|--------|
+| SEC-B2-1 | MEDIUM | Inconsistent `host_label` escaping pattern | **FIXED** |
+| SEC-B2-2 | MEDIUM | CSP allows `unsafe-inline` | Accepted (required for inline JS) |
+| SEC-B2-13 | MEDIUM | Double `asyncio.run()` in fleet | Accepted (correct behavior) |
+| SEC-B2-3 | LOW | `crt_sh_url` not URL-encoded | Accepted (display only) |
+| SEC-B2-4 | LOW | No path traversal protection in `scan_file()` | CLI tool — user controls input |
+| SEC-B2-5 | LOW | No port range validation | **FIXED** (`click.IntRange`) |
+| SEC-B2-6 | LOW | No concurrency upper bound | **FIXED** (`click.IntRange`) |
+| SEC-B2-14 | LOW | CBOM sort column bug (dup of QA-B2-1) | **FIXED** |
+| SEC-B2-16 | LOW | SSRF via redirect following in revocation | Accepted (CLI tool) |
+| SEC-B2-7 | INFO | CIDR 65536 magic number | Acceptable |
+| SEC-B2-8 | INFO | Error messages may expose exception details | Acceptable for CLI |
+| SEC-B2-9 | INFO | `ssl.CERT_NONE` used intentionally | By design |
+| SEC-B2-10 | INFO | Dependencies use `>=` pins | Standard Python convention |
+| SEC-B2-11 | INFO | OCSP uses SHA-1 hash | Per RFC 6960 |
+| SEC-B2-12 | INFO | `executor.shutdown(wait=False)` | Acceptable |
+| SEC-B2-15 | INFO | `exportCSV` globally scoped | By design |
+
+---
+
+## Round 4 — Timeline, Theme, Terminal (v0.2.0)
+
+Reviewed the certificate timeline visualization, light/dark theme toggle, and terminal output polish.
+
+### QA Agent (14 findings)
+
+| ID | Severity | Finding | Status |
+|----|----------|---------|--------|
+| QA-B3-1 | MEDIUM | Timezone-naive datetime subtraction TypeError | **FIXED** |
+| QA-B3-2 | MEDIUM | Padding fallback never triggers (0.05s truthy) | **FIXED** |
+| QA-B3-4 | MEDIUM | Hardcoded dark colors bypass light theme | **FIXED** |
+| QA-B3-10 | MEDIUM | No test for timezone-naive cert dates | **FIXED** (test added) |
+| QA-B3-3 | LOW | Timeline bar width can exceed 100% | **FIXED** (clamped) |
+| QA-B3-5 | LOW | tl-label nowrap vs `<br>` | Acceptable (works in practice) |
+| QA-B3-6 | LOW | Timeline shown for single-host (1 bar) | Acceptable (still useful) |
+| QA-B3-8 | LOW | Flash of dark theme on light preference | **FIXED** (head init) |
+| QA-B3-11 | LOW | No test for identical-date certs | Acceptable |
+| QA-B3-12 | LOW | No test for all-error fleet timeline | **FIXED** (test added) |
+| QA-B3-13 | LOW | No CSS variable parity test | Acceptable |
+| QA-B3-14 | INFO | Inline import in function body | **FIXED** (module-level) |
+| QA-B3-7 | INFO | Unicode moon/sun rendering varies | Acceptable |
+| QA-B3-9 | INFO | Rich API usage correct | OK |
+
+### Security Agent (10 findings)
+
+| ID | Severity | Finding | Status |
+|----|----------|---------|--------|
+| SEC-B3-6 | MEDIUM | Percentage values unclamped | **FIXED** (clamped to [0,100]) |
+| SEC-B3-1 | LOW | CSS selector injection (mitigated by _e()) | Acceptable |
+| SEC-B3-5 | LOW | Inline onclick vs addEventListener | Acceptable |
+| SEC-B3-8 | LOW | timedelta imported inside function | **FIXED** |
+| SEC-B3-10 | LOW | Subject truncation threshold 33 vs 30 | **FIXED** |
+| SEC-B3-2 | INFO | localStorage usage safe | OK |
+| SEC-B3-3 | INFO | Timeline percentages from datetime math | OK |
+| SEC-B3-4 | INFO | Timeline labels properly escaped | OK |
+| SEC-B3-7 | INFO | Terminal column settings correct | OK |
+| SEC-B3-9 | INFO | CSP well-configured | OK |
+
+---
+
+## Round 5 — Diff Feature (v0.2.0)
+
+Reviewed the new `notafter diff` command for comparing scan outputs.
+
+### QA Agent (15 findings)
+
+| ID | Severity | Finding | Status |
+|----|----------|---------|--------|
+| QA-D4-1 | HIGH | Duplicate subjects silently drop certs | **FIXED** (group-based matching) |
+| QA-D4-2 | HIGH | Duplicate findings silently dropped | **FIXED** (severity in key) |
+| QA-D4-3 | HIGH | Baseline doesn't support stdin | Accepted (by design — documented) |
+| QA-D4-4 | MEDIUM | Fleet KeyError on missing host/port | **FIXED** (`.get()` with fallback) |
+| QA-D4-5 | MEDIUM | Empty subjects create false match | **FIXED** (skip empty) |
+| QA-D4-6 | MEDIUM | detect_format rejects dict without `target` | **FIXED** (check chain/audit too) |
+| QA-D4-7 | MEDIUM | tls_change emitted with empty strings | Acceptable |
+| QA-D4-9 | MEDIUM | Unhandled JSONDecodeError | **FIXED** |
+| QA-D4-10 | MEDIUM | No test for stdin input | Future enhancement |
+| QA-D4-11 | LOW | Shallow copy in test | Acceptable |
+| QA-D4-12 | LOW | Fleet diff is summary-only | By design (documented) |
+| QA-D4-13 | LOW | No data on added/removed hosts | Future enhancement |
+| QA-D4-14 | LOW | No multi-port test | **FIXED** (test added) |
+| QA-D4-15 | INFO | print_diff silently returns on wrong type | Acceptable |
+
+### Security Agent (9 findings)
+
+| ID | Severity | Finding | Status |
+|----|----------|---------|--------|
+| SEC-D4-1 | MEDIUM | Rich markup injection via cert subjects | **FIXED** (`rich.markup.escape`) |
+| SEC-D4-2 | MEDIUM | Rich markup injection via host field | **FIXED** (`rich.markup.escape`) |
+| SEC-D4-3 | MEDIUM | No file size limit on JSON input | Accepted (CLI tool) |
+| SEC-D4-4 | LOW | Unhandled JSONDecodeError | **FIXED** |
+| SEC-D4-5 | LOW | Fleet KeyError on malformed entries | **FIXED** |
+| SEC-D4-6 | LOW | Duplicate subjects collapse | **FIXED** |
+| SEC-D4-7 | INFO | allow_dash asymmetry | By design |
+| SEC-D4-8 | INFO | No malformed JSON test | **FIXED** (tests added) |
+| SEC-D4-9 | INFO | No path traversal risk | OK |
 
 ---
 

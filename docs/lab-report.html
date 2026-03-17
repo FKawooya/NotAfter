@@ -1,0 +1,1838 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'none'; script-src 'unsafe-inline'">
+<title>Fleet Dashboard (12 hosts)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+/* Theme variables */
+:root {
+  --bg-primary: #0d1117; --bg-secondary: #161b22; --bg-tertiary: #21262d;
+  --border: #30363d; --text-primary: #e6edf3; --text-secondary: #8b949e;
+  --text-muted: #484f58; --link: #58a6ff;
+}
+.light-theme {
+  --bg-primary: #ffffff; --bg-secondary: #f6f8fa; --bg-tertiary: #e1e4e8;
+  --border: #d0d7de; --text-primary: #1f2328; --text-secondary: #656d76;
+  --text-muted: #8b949e; --link: #0969da;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg-primary); color: var(--text-primary); line-height: 1.6;
+  -webkit-font-smoothing: antialiased; padding: 0; margin: 0;
+}
+.container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+h1, h2, h3, h4, h5 { letter-spacing: -0.02em; }
+code, .mono { font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace; }
+
+/* Header */
+.report-header {
+  background: var(--bg-secondary); border-bottom: 1px solid var(--border);
+  padding: 32px 0; margin-bottom: 32px; position: relative;
+}
+.report-header h1 { font-size: 1.75rem; font-weight: 800; margin-bottom: 4px; }
+.report-header .meta { color: var(--text-secondary); font-size: 0.85rem; }
+.report-header .meta span { margin-right: 18px; }
+.theme-toggle {
+  position: absolute; top: 16px; right: 24px; border: none; background: transparent;
+  color: var(--text-secondary); font-size: 1.3rem; cursor: pointer; padding: 4px 8px;
+  border-radius: 6px; transition: color 0.2s;
+}
+.theme-toggle:hover { color: var(--text-primary); }
+
+/* Section */
+.section { margin-bottom: 32px; }
+.section h2 {
+  font-size: 1.2rem; font-weight: 700; margin-bottom: 16px;
+  padding-bottom: 8px; border-bottom: 1px solid var(--border);
+}
+
+/* Stat cards */
+.stat-cards {
+  display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 24px;
+}
+.stat-card {
+  flex: 1; min-width: 120px; background: var(--bg-secondary);
+  border: 1px solid var(--border); border-radius: 10px;
+  padding: 20px; text-align: center;
+}
+.stat-card .stat-value {
+  font-size: 2rem; font-weight: 800;
+  font-family: 'JetBrains Mono', monospace; line-height: 1;
+}
+.stat-card .stat-label {
+  font-size: 0.82rem; color: var(--text-secondary); margin-top: 4px; font-weight: 500;
+}
+
+/* Tab navigation */
+.tab-nav {
+  display: flex; gap: 4px; border-bottom: 2px solid var(--border);
+  margin-bottom: 24px; flex-wrap: wrap;
+}
+.tab-btn {
+  padding: 10px 20px; border: none; background: transparent;
+  color: var(--text-secondary); cursor: pointer; font-size: 0.88rem; font-weight: 600;
+  border-bottom: 2px solid transparent; margin-bottom: -2px;
+  font-family: inherit; transition: color 0.2s;
+}
+.tab-btn:hover { color: var(--text-primary); }
+.tab-btn.active { color: var(--link); border-bottom-color: var(--link); }
+
+/* Tab content */
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* Filter bar */
+.filter-bar { margin-bottom: 12px; }
+.filter-input {
+  width: 100%; max-width: 400px; padding: 8px 14px;
+  background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text-primary); font-size: 0.88rem; font-family: inherit;
+  outline: none; transition: border-color 0.2s;
+}
+.filter-input:focus { border-color: var(--link); }
+.filter-input::placeholder { color: var(--text-muted); }
+
+/* Tables */
+table {
+  width: 100%; border-collapse: collapse; font-size: 0.88rem;
+  margin-bottom: 8px;
+}
+th, td {
+  text-align: left; padding: 10px 14px;
+  border-bottom: 1px solid var(--bg-tertiary);
+}
+th {
+  color: var(--text-secondary); font-weight: 600; font-size: 0.78rem;
+  text-transform: uppercase; letter-spacing: 0.04em;
+  background: var(--bg-secondary); position: sticky; top: 0;
+}
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable:hover { color: var(--text-primary); }
+th.sortable::after { content: ' \25B2\25BC'; font-size: 0.55rem; }
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+/* Row severity backgrounds */
+.row-critical { background: rgba(248,81,73,0.08); }
+.row-warning  { background: rgba(210,153,34,0.08); }
+.row-pass     { background: rgba(63,185,80,0.06); }
+.row-info     { background: rgba(88,166,255,0.06); }
+
+/* Badges / pills */
+.pill {
+  display: inline-block; padding: 2px 10px; border-radius: 12px;
+  font-size: 0.78rem; font-weight: 600; white-space: nowrap;
+}
+.icon-cell { text-align: center; font-size: 1.1rem; width: 36px; }
+
+/* Host link */
+.host-link { cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; }
+.host-link:hover { color: var(--link); }
+.host-expand-icon { color: var(--text-secondary); font-size: 0.7rem; display: inline-block; margin-right: 6px; transition: transform 0.2s; }
+.host-expand-icon.open { transform: rotate(90deg); }
+
+/* Inline findings (overview expand) */
+.overview-expand > td { padding: 4px 16px 12px 16px; background: var(--bg-secondary); border-bottom: 1px solid var(--border); }
+.inline-findings { font-size: 0.85rem; padding: 4px 0; }
+.inline-findings .finding-row { padding: 3px 0; display: flex; gap: 8px; align-items: baseline; }
+.inline-findings .finding-row .msg { color: var(--text-primary); }
+.inline-findings .finding-row .action { color: var(--text-secondary); }
+.detail-link { color: var(--link); font-size: 0.82rem; cursor: pointer; text-decoration: none; margin-top: 6px; display: inline-block; }
+.detail-link:hover { text-decoration: underline; }
+
+/* PQC panel */
+.pqc-panel {
+  background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px;
+  padding: 24px; margin-bottom: 24px;
+}
+.pqc-score-row {
+  display: flex; align-items: center; gap: 24px; margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.pqc-score-circle {
+  width: 80px; height: 80px; border-radius: 50%;
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; font-weight: 800; border: 3px solid;
+}
+.pqc-score-circle .score { font-size: 1.3rem; line-height: 1; }
+.pqc-info { color: var(--text-secondary); font-size: 0.88rem; }
+.pqc-grade {
+  font-size: 2rem; font-weight: 800;
+  font-family: 'JetBrains Mono', monospace;
+}
+.rec-list { list-style: none; padding: 0; margin-top: 12px; }
+.rec-list li {
+  padding: 6px 0; color: var(--text-primary); font-size: 0.88rem;
+  border-bottom: 1px solid var(--bg-tertiary);
+}
+.rec-list li::before { content: "> "; color: var(--text-secondary); font-family: 'JetBrains Mono', monospace; }
+
+/* Cert details grid */
+.cert-grid {
+  display: grid; grid-template-columns: 140px 1fr;
+  gap: 4px 16px; font-size: 0.88rem; margin-bottom: 16px;
+}
+.cert-grid dt { color: var(--text-secondary); font-weight: 600; }
+.cert-grid dd { color: var(--text-primary); word-break: break-all; }
+
+/* Host details (expand/collapse) */
+.host-detail-block { margin-bottom: 2px; }
+.host-summary {
+  cursor: pointer; list-style: none; padding: 12px 16px;
+  background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+.host-summary::-webkit-details-marker { display: none; }
+.host-summary::marker { display: none; }
+.host-summary::before { content: '\25B8'; color: var(--text-secondary); font-size: 0.8rem; transition: transform 0.2s; }
+details[open] > .host-summary::before { transform: rotate(90deg); }
+.host-summary.host-error { border-color: rgba(248,81,73,0.3); }
+.host-details {
+  padding: 16px 20px; background: var(--bg-primary);
+  border: 1px solid var(--bg-tertiary); border-top: none; border-radius: 0 0 6px 6px;
+}
+
+/* Footer */
+.report-footer {
+  margin-top: 48px; padding: 24px 0; border-top: 1px solid var(--border);
+  text-align: center; color: var(--text-secondary); font-size: 0.82rem;
+}
+
+/* Export button */
+.export-btn {
+  padding: 6px 14px; margin-left: 12px; background: var(--bg-tertiary);
+  border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary);
+  font-size: 0.82rem; cursor: pointer; font-family: inherit;
+  vertical-align: middle;
+}
+.export-btn:hover { background: var(--border); }
+
+/* Timeline */
+.tl-axis {
+  display: flex; justify-content: space-between; font-size: 0.75rem;
+  color: var(--text-secondary); margin-bottom: 8px; padding: 0 0 0 200px;
+}
+.tl-row { display: flex; gap: 12px; align-items: center; margin-bottom: 4px; min-height: 32px; }
+.tl-label {
+  width: 200px; min-width: 200px; font-size: 0.78rem; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.tl-track {
+  flex: 1; position: relative; background: var(--bg-tertiary);
+  border-radius: 4px; height: 18px;
+}
+.tl-bar {
+  position: absolute; top: 2px; bottom: 2px; border-radius: 3px;
+  min-width: 2px; opacity: 0.85;
+}
+.tl-today {
+  position: absolute; width: 2px; background: var(--link);
+  top: -4px; bottom: -4px; z-index: 1; opacity: 0.9;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .report-header h1 { font-size: 1.3rem; }
+  .pqc-score-row { flex-direction: column; align-items: flex-start; }
+  .cert-grid { grid-template-columns: 1fr; }
+  .stat-cards { flex-direction: column; }
+  th, td { padding: 8px 10px; font-size: 0.82rem; }
+  .tab-btn { padding: 8px 12px; font-size: 0.82rem; }
+  .tl-label { width: 120px; min-width: 120px; }
+  .tl-axis { padding-left: 132px; }
+}
+
+/* Print */
+@media print {
+  body { --bg-primary: #fff; --bg-secondary: #f6f8fa; --bg-tertiary: #e1e4e8;
+    --border: #d0d7de; --text-primary: #1a1a1a; --text-secondary: #555; --text-muted: #888;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .tab-nav { display: none; }
+  .theme-toggle { display: none; }
+  .tab-content { display: block !important; page-break-inside: avoid; margin-bottom: 24px; }
+  .filter-bar { display: none; }
+  .export-btn { display: none; }
+  .row-critical { background: rgba(248,81,73,0.15) !important; }
+  .row-warning { background: rgba(210,153,34,0.15) !important; }
+  .row-pass { background: rgba(63,185,80,0.10) !important; }
+  details { break-inside: avoid; }
+  details[open] > .host-details { display: block; }
+  .overview-expand { display: table-row !important; }
+  .host-expand-icon { display: none; }
+  .detail-link { display: none; }
+  a { color: #0366d6; }
+}
+
+</style>
+<script>try{if(localStorage.getItem('notafter-theme')==='light')document.documentElement.classList.add('light-theme')}catch(e){}</script>
+</head>
+<body>
+<div class="report-header">
+  <div class="container">
+    <h1>NotAfter Dashboard</h1>
+    <div class="meta">
+      <span>12 hosts scanned</span>
+      <span>Scanned: 2026-03-16 21:54:40 UTC</span>
+      <span>notafter v0.2.0</span>
+    </div>
+    <button class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark theme">&#x263E;</button>
+  </div>
+</div>
+
+<div class="container">
+<div class="stat-cards">
+<div class="stat-card"><div class="stat-value" style="color:#58a6ff">12</div><div class="stat-label">Hosts</div></div>
+<div class="stat-card"><div class="stat-value" style="color:#f85149">2</div><div class="stat-label">Critical</div></div>
+<div class="stat-card"><div class="stat-value" style="color:#d29922">17</div><div class="stat-label">Warnings</div></div>
+<div class="stat-card"><div class="stat-value" style="color:#3fb950">0</div><div class="stat-label">Clean</div></div>
+<div class="stat-card"><div class="stat-value" style="color:#f85149">1</div><div class="stat-label">Errors</div></div>
+<div class="stat-card"><div class="stat-value" style="color:#f85149">1.7</div><div class="stat-label">Avg PQC Score</div></div>
+</div>
+<div class="tab-nav" role="tablist">
+<button class="tab-btn active" data-tab="overview" role="tab" aria-selected="true" aria-controls="tab-overview">Overview (18 findings)</button>
+<button class="tab-btn" data-tab="inventory" role="tab" aria-selected="false" aria-controls="tab-inventory">Certificates (11)</button>
+<button class="tab-btn" data-tab="timeline" role="tab" aria-selected="false" aria-controls="tab-timeline">Timeline</button>
+<button class="tab-btn" data-tab="pqc" role="tab" aria-selected="false" aria-controls="tab-pqc">PQC Posture</button>
+<button class="tab-btn" data-tab="revocation" role="tab" aria-selected="false" aria-controls="tab-revocation">Revocation</button>
+<button class="tab-btn" data-tab="cbom" role="tab" aria-selected="false" aria-controls="tab-cbom">CBOM</button>
+<button class="tab-btn" data-tab="hosts" role="tab" aria-selected="false" aria-controls="tab-hosts">Host Details</button>
+</div>
+<div class="tab-content active" id="tab-overview" role="tabpanel">
+<div class="section"><h2>Fleet Overview</h2>
+<div class="filter-bar"><input type="text" id="overview-filter" placeholder="Filter hosts..." class="filter-input" aria-label="Filter hosts"></div>
+<div class="table-wrap"><table id="overview-table">
+<thead><tr>
+<th class="sortable" data-col="0">Host</th>
+<th class="sortable" data-col="1">TLS</th>
+<th class="sortable" data-col="2" style="text-align:center">Critical</th>
+<th class="sortable" data-col="3" style="text-align:center">Warnings</th>
+<th class="sortable" data-col="4" style="text-align:center">PQC</th>
+<th>Status</th>
+</tr></thead><tbody>
+<tr class="row-warning" data-host="10.1.10.100"><td class="mono host-link" data-target="10.1.10.100:6443"><span class="host-expand-icon">&#x25B8;</span>10.1.10.100:6443</td><td>TLSv1.3</td><td style="text-align:center;color:#3fb950">0</td><td style="text-align:center;color:#d29922">1</td><td style="text-align:center"><span style="color:#f85149" class="mono">2/10 F</span></td><td><span class="pill" style="color:#d29922;border:1px solid #d29922">WARNING</span></td></tr>
+<tr class="overview-expand" data-expand="10.1.10.100:6443" style="display:none"><td colspan="6"><div class="inline-findings"><div class="finding-row"><span style="color:#d29922">&#x26A0;</span> <span class="msg">Only leaf certificate received — intermediates may be missing.</span> <span class="action">&mdash; Configure the server to send the full certificate chain.</span></div><a class="detail-link" data-target="10.1.10.100:6443">Full details &rarr;</a></div></td></tr>
+<tr class="row-critical"><td class="mono">10.1.10.10:443</td><td>&mdash;</td><td style="text-align:center">&mdash;</td><td style="text-align:center">&mdash;</td><td style="text-align:center">&mdash;</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">ERROR</span></td></tr>
+<tr class="overview-expand" data-expand="10.1.10.10:443" style="display:none"><td colspan="6"><div class="inline-findings"><div class="finding-row"><span style="color:#f85149">Connection timed out after 15.0s</span></div><a class="detail-link" data-target="10.1.10.10:443">Full details &rarr;</a></div></td></tr>
+<tr class="row-warning" data-host="10.1.10.245"><td class="mono host-link" data-target="10.1.10.245:8006"><span class="host-expand-icon">&#x25B8;</span>10.1.10.245:8006</td><td>TLSv1.3</td><td style="text-align:center;color:#3fb950">0</td><td style="text-align:center;color:#d29922">2</td><td style="text-align:center"><span style="color:#f85149" class="mono">2/10 F</span></td><td><span class="pill" style="color:#d29922;border:1px solid #d29922">WARNING</span></td></tr>
+<tr class="overview-expand" data-expand="10.1.10.245:8006" style="display:none"><td colspan="6"><div class="inline-findings"><div class="finding-row"><span style="color:#d29922">&#x26A0;</span> <span class="msg">RSA-2048: meets minimum but 3072+ recommended.</span> <span class="action">&mdash; Consider RSA-3072 or ECDSA P-256 for better security margin.</span></div><div class="finding-row"><span style="color:#d29922">&#x26A0;</span> <span class="msg">Only leaf certificate received — intermediates may be missing.</span> <span class="action">&mdash; Configure the server to send the full certificate chain.</span></div><a class="detail-link" data-target="10.1.10.245:8006">Full details &rarr;</a></div></td></tr>
+<tr class="row-warning" data-host="10.1.10.3"><td class="mono host-link" data-target="10.1.10.3:8006"><span class="host-expand-icon">&#x25B8;</span>10.1.10.3:8006</td><td>TLSv1.3</td><td style="text-align:center;color:#3fb950">0</td><td style="text-align:center;color:#d29922">2</td><td style="text-align:center"><span style="color:#f85149" class="mono">2/10 F</span></td><td><span class="pill" style="color:#d29922;border:1px solid #d29922">WARNING</span></td></tr>
+<tr class="overview-expand" data-expand="10.1.10.3:8006" style="display:none"><td colspan="6"><div class="inline-findings"><div class="finding-row"><span style="color:#d29922">&#x26A0;</span> <span class="msg">RSA-2048: meets minimum but 3072+ recommended.</span> <span class="action">&mdash; Consider RSA-3072 or ECDSA P-256 for better security margin.</span></div><div class="finding-row"><span style="color:#d29922">&#x26A0;</span> <span class="msg">Only leaf certificate received — intermediates may be missing.</span> <span class="action">&mdash; Configure the server to send the full certificate chain.</span></div><a class="detail-link" data-target="10.1.10.3:8006">Full details &rarr;</a></div></td></tr>
+<tr class="row-warning" data-host="10.1.10.5"><td class="mono host-link" data-target="10.1.10.5:8006"><span class="host-expand-icon">&#x25B8;</span>10.1.10.5:8006</td><td>TLSv1.3</td><td style="text-align:center;color:#3fb950">0</td><td style="text-align:center;color:#d29922">2</td><td style="text-align:center"><span style="color:#f85149" class="mono">2/10 F</span></td><td><span class="pill" style="color:#d29922;border:1px solid #d29922">WARNING</span></td></tr>
+<tr class="overview-expand" data-expand="10.1.10.5:8006" style="display:none"><td colspan="6"><div class="inline-findings"><div class="finding-row"><span style="color:#d29922">&#x26A0;</span> <span class="msg">RSA-2048: meets minimum but 3072+ recommended.</span> <span class="action">&mdash; Consider RSA-3072 or ECDSA P-256 for better security margin.</span></div><div class="finding-row"><span style="color:#d29922">&#x26A0;</span> <span class="msg">Only leaf certificate received — intermediates may be missing.</span> <span class="action">&mdash; Configure the server to send the full certificate chain.</span></div><a class="detail-link" data-target="10.1.10.5:8006">Full details &rarr;</a></div></td></tr>
+<tr class="row-warning" data-host="10.1.10.250"><td class="mono host-link" data-target="10.1.10.250:443"><span class="host-expand-icon">&#x25B8;</span>10.1.10.250:443</td><td>TLSv1.3</td><td style="text-align:center;color:#3fb950">0</td><td style="text-align:center;color:#d29922">1</td><td style="text-align:center"><span style="color:#f85149" class="mono">2/10 F</span></td><td><span class="pill" style="color:#d29922;border:1px solid #d29922">WARNING</span></td></tr>
+<tr class="overview-expand" data-expand="10.1.10.250:443" style="display:none"><td colspan="6"><div class="inline-findings"><div class="finding-row"><span style="color:#d29922">&#x26A0;</span> <span class="msg">Only leaf certificate received — intermediates may be missing.</span> <span class="action">&mdash; Configure the server to send the full certificate chain.</span></div><a class="detail-link" data-target="10.1.10.250:443">Full details &rarr;</a></div></td></tr>
+<tr class="row-warning" data-host="google.com"><td class="mono host-link" data-target="google.com:443"><span class="host-expand-icon">&#x25B8;</span>google.com:443</td><td>TLSv1.3</td><td style="text-align:center;color:#3fb950">0</td><td style="text-align:center;color:#d29922">1</td><td style="text-align:center"><span style="color:#f85149" class="mono">2/10 F</span></td><td><span class="pill" style="color:#d29922;border:1px solid #d29922">WARNING</span></td></tr>
+<tr class="overview-expand" data-expand="google.com:443" style="display:none"><td colspan="6"><div class="inline-findings"><div class="finding-row"><span style="color:#58a6ff">&#x2139;</span> <span class="msg">Wildcard SAN(s): *.google.com, *.appengine.google.com, *.bdn.dev, *.origin-test.bdn.dev, *.cloud.google.com, *.crowdsource.google.com, *.datacompute.google.com, *.google.ca, *.google.cl, *.google.co.in, *.google.co.jp, *.google.co.uk, *.google.com.ar, *.google.com.au, *.google.com.br, *.google.com.co, *.google.com.mx, *.google.com.tr, *.google.com.vn, *.google.de, *.google.es, *.google.fr, *.google.hu, *.google.it, *.google.nl, *.google.pl, *.google.pt, *.googleapis.cn, *.gstatic.cn, *.gstatic-cn.com, *.googlecnapps.cn, *.googleapps-cn.com, *.gkecnapps.cn, *.googledownloads.cn, *.recaptcha.net.cn, *.recaptcha-cn.net, *.widevine.cn, *.ampproject.org.cn, *.ampproject.net.cn, *.google-analytics-cn.com, *.googleadservices-cn.com, *.googlevads-cn.com, *.googleapis-cn.com, *.googleoptimize-cn.com, *.doubleclick-cn.net, *.fls.doubleclick-cn.net, *.g.doubleclick-cn.net, *.doubleclick.cn, *.fls.doubleclick.cn, *.g.doubleclick.cn, *.dartsearch-cn.net, *.googletraveladservices-cn.com, *.googletagservices-cn.com, *.googletagmanager-cn.com, *.googlesyndication-cn.com, *.safeframe.googlesyndication-cn.com, *.app-measurement-cn.com, *.gvt1-cn.com, *.gvt2-cn.com, *.2mdn-cn.net, *.googleflights-cn.net, *.admob-cn.com, *.gemini.cloud.google.com, *.googlesandbox-cn.com, *.safenup.googlesandbox-cn.com, *.gstatic.com, *.metric.gstatic.com, *.gvt1.com, *.gcpcdn.gvt1.com, *.gvt2.com, *.gcp.gvt2.com, *.url.google.com, *.youtube-nocookie.com, *.ytimg.com, *.android.com, *.flash.android.com, *.g.cn, *.g.co, *.google-analytics.com, *.googlecommerce.com, *.ggpht.cn, *.urchin.com, *.youtube.com, *.music.youtube.com, *.youtubeeducation.com, *.youtubekids.com, *.yt.be, *.android.google.cn, *.chrome.google.cn, *.developers.google.cn, *.aistudio.google.com</span></div><div class="finding-row"><span style="color:#d29922">&#x26A0;</span> <span class="msg">Only leaf certificate received — intermediates may be missing.</span> <span class="action">&mdash; Configure the server to send the full certificate chain.</span></div><a class="detail-link" data-target="google.com:443">Full details &rarr;</a></div></td></tr>
+<tr class="row-warning" data-host="digicert.com"><td class="mono host-link" data-target="digicert.com:443"><span class="host-expand-icon">&#x25B8;</span>digicert.com:443</td><td>TLSv1.3</td><td style="text-align:center;color:#3fb950">0</td><td style="text-align:center;color:#d29922">2</td><td style="text-align:center"><span style="color:#f85149" class="mono">2/10 F</span></td><td><span class="pill" style="color:#d29922;border:1px solid #d29922">WARNING</span></td></tr>
+<tr class="overview-expand" data-expand="digicert.com:443" style="display:none"><td colspan="6"><div class="inline-findings"><div class="finding-row"><span style="color:#d29922">&#x26A0;</span> <span class="msg">RSA-2048: meets minimum but 3072+ recommended.</span> <span class="action">&mdash; Consider RSA-3072 or ECDSA P-256 for better security margin.</span></div><div class="finding-row"><span style="color:#d29922">&#x26A0;</span> <span class="msg">Only leaf certificate received — intermediates may be missing.</span> <span class="action">&mdash; Configure the server to send the full certificate chain.</span></div><a class="detail-link" data-target="digicert.com:443">Full details &rarr;</a></div></td></tr>
+<tr class="row-warning" data-host="github.com"><td class="mono host-link" data-target="github.com:443"><span class="host-expand-icon">&#x25B8;</span>github.com:443</td><td>TLSv1.3</td><td style="text-align:center;color:#3fb950">0</td><td style="text-align:center;color:#d29922">1</td><td style="text-align:center"><span style="color:#f85149" class="mono">2/10 F</span></td><td><span class="pill" style="color:#d29922;border:1px solid #d29922">WARNING</span></td></tr>
+<tr class="overview-expand" data-expand="github.com:443" style="display:none"><td colspan="6"><div class="inline-findings"><div class="finding-row"><span style="color:#d29922">&#x26A0;</span> <span class="msg">Only leaf certificate received — intermediates may be missing.</span> <span class="action">&mdash; Configure the server to send the full certificate chain.</span></div><a class="detail-link" data-target="github.com:443">Full details &rarr;</a></div></td></tr>
+<tr class="row-critical" data-host="expired.badssl.com"><td class="mono host-link" data-target="expired.badssl.com:443"><span class="host-expand-icon">&#x25B8;</span>expired.badssl.com:443</td><td>TLSv1.2</td><td style="text-align:center;color:#f85149">1</td><td style="text-align:center;color:#d29922">2</td><td style="text-align:center"><span style="color:#f85149" class="mono">1/10 F</span></td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">CRITICAL</span></td></tr>
+<tr class="overview-expand" data-expand="expired.badssl.com:443" style="display:none"><td colspan="6"><div class="inline-findings"><div class="finding-row"><span style="color:#f85149">&#x2716;</span> <span class="msg">EXPIRED on 2015-04-12T23:59:59+00:00.</span> <span class="action">&mdash; Renew certificate immediately.</span></div><div class="finding-row"><span style="color:#d29922">&#x26A0;</span> <span class="msg">RSA-2048: meets minimum but 3072+ recommended.</span> <span class="action">&mdash; Consider RSA-3072 or ECDSA P-256 for better security margin.</span></div><div class="finding-row"><span style="color:#58a6ff">&#x2139;</span> <span class="msg">Wildcard SAN(s): *.badssl.com</span></div><div class="finding-row"><span style="color:#d29922">&#x26A0;</span> <span class="msg">Only leaf certificate received — intermediates may be missing.</span> <span class="action">&mdash; Configure the server to send the full certificate chain.</span></div><a class="detail-link" data-target="expired.badssl.com:443">Full details &rarr;</a></div></td></tr>
+<tr class="row-warning" data-host="self-signed.badssl.com"><td class="mono host-link" data-target="self-signed.badssl.com:443"><span class="host-expand-icon">&#x25B8;</span>self-signed.badssl.com:443</td><td>TLSv1.2</td><td style="text-align:center;color:#3fb950">0</td><td style="text-align:center;color:#d29922">2</td><td style="text-align:center"><span style="color:#f85149" class="mono">1/10 F</span></td><td><span class="pill" style="color:#d29922;border:1px solid #d29922">WARNING</span></td></tr>
+<tr class="overview-expand" data-expand="self-signed.badssl.com:443" style="display:none"><td colspan="6"><div class="inline-findings"><div class="finding-row"><span style="color:#d29922">&#x26A0;</span> <span class="msg">RSA-2048: meets minimum but 3072+ recommended.</span> <span class="action">&mdash; Consider RSA-3072 or ECDSA P-256 for better security margin.</span></div><div class="finding-row"><span style="color:#58a6ff">&#x2139;</span> <span class="msg">Wildcard SAN(s): *.badssl.com</span></div><div class="finding-row"><span style="color:#d29922">&#x26A0;</span> <span class="msg">Leaf certificate is self-signed.</span> <span class="action">&mdash; Use a certificate from a trusted CA.</span></div><a class="detail-link" data-target="self-signed.badssl.com:443">Full details &rarr;</a></div></td></tr>
+<tr class="row-warning" data-host="revoked.badssl.com"><td class="mono host-link" data-target="revoked.badssl.com:443"><span class="host-expand-icon">&#x25B8;</span>revoked.badssl.com:443</td><td>TLSv1.2</td><td style="text-align:center;color:#3fb950">0</td><td style="text-align:center;color:#d29922">1</td><td style="text-align:center"><span style="color:#f85149" class="mono">1/10 F</span></td><td><span class="pill" style="color:#d29922;border:1px solid #d29922">WARNING</span></td></tr>
+<tr class="overview-expand" data-expand="revoked.badssl.com:443" style="display:none"><td colspan="6"><div class="inline-findings"><div class="finding-row"><span style="color:#d29922">&#x26A0;</span> <span class="msg">Only leaf certificate received — intermediates may be missing.</span> <span class="action">&mdash; Configure the server to send the full certificate chain.</span></div><a class="detail-link" data-target="revoked.badssl.com:443">Full details &rarr;</a></div></td></tr>
+</tbody></table></div></div></div>
+<div class="tab-content" id="tab-inventory" role="tabpanel">
+<div class="section"><h2>Certificate Inventory</h2>
+<div class="filter-bar"><input type="text" id="inventory-filter" placeholder="Filter certificates..." class="filter-input" aria-label="Filter certificates"><button class="export-btn" onclick="exportCSV('inventory-table','notafter-inventory')">Export CSV</button></div>
+<div class="table-wrap"><table id="inventory-table">
+<thead><tr>
+<th class="sortable" data-col="0">Host</th>
+<th>Role</th><th class="sortable" data-col="2">Subject</th><th class="sortable" data-col="3">Expires</th><th>Key</th><th>Signature</th><th>SAN</th>
+</tr></thead><tbody>
+<tr><td class="mono" style="white-space:nowrap">10.1.10.100:6443</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">Leaf</span></td><td style="max-width:220px;overflow:hidden;text-overflow:ellipsis" title="CN=kube-apiserver">CN=kube-apiserver</td><td style="color:#3fb950;white-space:nowrap">2026-12-26 <span style="color:#8b949e;font-size:0.78rem">(284d)</span></td><td class="mono" style="white-space:nowrap">EC-secp256r1 (256)</td><td class="mono" style="font-size:0.78rem">ECDSA-with-SHA256</td><td style="font-size:0.78rem;max-width:180px;overflow:hidden;text-overflow:ellipsis" title="kubernetes, kubernetes.default, kubernetes.default.svc, kubernetes.default.svc.cluster.local, localhost (+5 more)">kubernetes, kubernetes.default, kubernetes.default.svc, kubernetes.default.svc.cluster.local, localhost (+5 more)</td></tr>
+<tr><td class="mono" style="white-space:nowrap">10.1.10.245:8006</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">Leaf</span></td><td style="max-width:220px;overflow:hidden;text-overflow:ellipsis" title="CN=pve-master.lan,O=Proxmox Virtual Environment,OU=PVE Cluster Node">CN=pve-master.lan,O=Proxmox Virtual Environment,OU=PVE Cluster Node</td><td style="color:#3fb950;white-space:nowrap">2027-11-08 <span style="color:#8b949e;font-size:0.78rem">(601d)</span></td><td class="mono" style="white-space:nowrap">RSA (2048)</td><td class="mono" style="font-size:0.78rem">SHA256WithRSAEncryption</td><td style="font-size:0.78rem;max-width:180px;overflow:hidden;text-overflow:ellipsis" title="localhost, pve-master, pve-master.lan, 127.0.0.1, ::1 (+1 more)">localhost, pve-master, pve-master.lan, 127.0.0.1, ::1 (+1 more)</td></tr>
+<tr><td class="mono" style="white-space:nowrap">10.1.10.3:8006</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">Leaf</span></td><td style="max-width:220px;overflow:hidden;text-overflow:ellipsis" title="CN=mini-pve.lab,O=Proxmox Virtual Environment,OU=PVE Cluster Node">CN=mini-pve.lab,O=Proxmox Virtual Environment,OU=PVE Cluster Node</td><td style="color:#3fb950;white-space:nowrap">2027-05-27 <span style="color:#8b949e;font-size:0.78rem">(436d)</span></td><td class="mono" style="white-space:nowrap">RSA (2048)</td><td class="mono" style="font-size:0.78rem">SHA256WithRSAEncryption</td><td style="font-size:0.78rem;max-width:180px;overflow:hidden;text-overflow:ellipsis" title="localhost, mini-pve, mini-pve.lab, 127.0.0.1, ::1 (+1 more)">localhost, mini-pve, mini-pve.lab, 127.0.0.1, ::1 (+1 more)</td></tr>
+<tr><td class="mono" style="white-space:nowrap">10.1.10.5:8006</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">Leaf</span></td><td style="max-width:220px;overflow:hidden;text-overflow:ellipsis" title="CN=agents-pve.local,O=Proxmox Virtual Environment,OU=PVE Cluster Node">CN=agents-pve.local,O=Proxmox Virtual Environment,OU=PVE Cluster Node</td><td style="color:#3fb950;white-space:nowrap">2028-02-08 <span style="color:#8b949e;font-size:0.78rem">(693d)</span></td><td class="mono" style="white-space:nowrap">RSA (2048)</td><td class="mono" style="font-size:0.78rem">SHA256WithRSAEncryption</td><td style="font-size:0.78rem;max-width:180px;overflow:hidden;text-overflow:ellipsis" title="localhost, agents-pve, agents-pve.local, 127.0.0.1, ::1 (+1 more)">localhost, agents-pve, agents-pve.local, 127.0.0.1, ::1 (+1 more)</td></tr>
+<tr><td class="mono" style="white-space:nowrap">10.1.10.250:443</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">Leaf</span></td><td style="max-width:220px;overflow:hidden;text-overflow:ellipsis" title="CN=pi.hole">CN=pi.hole</td><td style="color:#3fb950;white-space:nowrap">2055-03-12 <span style="color:#8b949e;font-size:0.78rem">(10588d)</span></td><td class="mono" style="white-space:nowrap">EC-secp384r1 (384)</td><td class="mono" style="font-size:0.78rem">ECDSA-with-SHA256</td><td style="font-size:0.78rem;max-width:180px;overflow:hidden;text-overflow:ellipsis" title="pi.hole">pi.hole</td></tr>
+<tr><td class="mono" style="white-space:nowrap">google.com:443</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">Leaf</span></td><td style="max-width:220px;overflow:hidden;text-overflow:ellipsis" title="CN=*.google.com">CN=*.google.com</td><td style="color:#3fb950;white-space:nowrap">2026-04-27 <span style="color:#8b949e;font-size:0.78rem">(41d)</span></td><td class="mono" style="white-space:nowrap">EC-secp256r1 (256)</td><td class="mono" style="font-size:0.78rem">ECDSA-with-SHA256</td><td style="font-size:0.78rem;max-width:180px;overflow:hidden;text-overflow:ellipsis" title="*.google.com, *.appengine.google.com, *.bdn.dev, *.origin-test.bdn.dev, *.cloud.google.com (+132 more)">*.google.com, *.appengine.google.com, *.bdn.dev, *.origin-test.bdn.dev, *.cloud.google.com (+132 more)</td></tr>
+<tr><td class="mono" style="white-space:nowrap">digicert.com:443</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">Leaf</span></td><td style="max-width:220px;overflow:hidden;text-overflow:ellipsis" title="CN=www.digicert.com,O=DigiCert\, Inc.,L=Lehi,ST=Utah,C=US,2.5.4.5=5299537-0142,2.5.4.15=Private Organization,1.3.6.1.4.1.311.60.2.1.2=Utah,1.3.6.1.4.1.311.60.2.1.3=US">CN=www.digicert.com,O=DigiCert\, Inc.,L=Lehi,ST=Utah,C=US,2.5.4.5=5299537-0142,2.5.4.15=Private Organization,1.3.6.1.4.1.311.60.2.1.2=Utah,1.3.6.1.4.1.311.60.2.1.3=US</td><td style="color:#3fb950;white-space:nowrap">2026-04-23 <span style="color:#8b949e;font-size:0.78rem">(38d)</span></td><td class="mono" style="white-space:nowrap">RSA (2048)</td><td class="mono" style="font-size:0.78rem">SHA256WithRSAEncryption</td><td style="font-size:0.78rem;max-width:180px;overflow:hidden;text-overflow:ellipsis" title="www.digicert.com, digicert.com">www.digicert.com, digicert.com</td></tr>
+<tr><td class="mono" style="white-space:nowrap">github.com:443</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">Leaf</span></td><td style="max-width:220px;overflow:hidden;text-overflow:ellipsis" title="CN=github.com">CN=github.com</td><td style="color:#3fb950;white-space:nowrap">2026-06-03 <span style="color:#8b949e;font-size:0.78rem">(79d)</span></td><td class="mono" style="white-space:nowrap">EC-secp256r1 (256)</td><td class="mono" style="font-size:0.78rem">ECDSA-with-SHA256</td><td style="font-size:0.78rem;max-width:180px;overflow:hidden;text-overflow:ellipsis" title="github.com, www.github.com">github.com, www.github.com</td></tr>
+<tr><td class="mono" style="white-space:nowrap">expired.badssl.com:443</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">Leaf</span></td><td style="max-width:220px;overflow:hidden;text-overflow:ellipsis" title="CN=*.badssl.com,OU=PositiveSSL Wildcard,OU=Domain Control Validated">CN=*.badssl.com,OU=PositiveSSL Wildcard,OU=Domain Control Validated</td><td style="color:#f85149;white-space:nowrap">2015-04-12 <span style="color:#8b949e;font-size:0.78rem">(-3991d)</span></td><td class="mono" style="white-space:nowrap">RSA (2048)</td><td class="mono" style="font-size:0.78rem">SHA256WithRSAEncryption</td><td style="font-size:0.78rem;max-width:180px;overflow:hidden;text-overflow:ellipsis" title="*.badssl.com, badssl.com">*.badssl.com, badssl.com</td></tr>
+<tr><td class="mono" style="white-space:nowrap">self-signed.badssl.com:443</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">Leaf</span></td><td style="max-width:220px;overflow:hidden;text-overflow:ellipsis" title="CN=*.badssl.com,O=BadSSL,L=San Francisco,ST=California,C=US">CN=*.badssl.com,O=BadSSL,L=San Francisco,ST=California,C=US</td><td style="color:#3fb950;white-space:nowrap">2028-03-09 <span style="color:#8b949e;font-size:0.78rem">(723d)</span></td><td class="mono" style="white-space:nowrap">RSA (2048)</td><td class="mono" style="font-size:0.78rem">SHA256WithRSAEncryption</td><td style="font-size:0.78rem;max-width:180px;overflow:hidden;text-overflow:ellipsis" title="*.badssl.com, badssl.com">*.badssl.com, badssl.com</td></tr>
+<tr><td class="mono" style="white-space:nowrap">revoked.badssl.com:443</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">Leaf</span></td><td style="max-width:220px;overflow:hidden;text-overflow:ellipsis" title="CN=revoked.badssl.com">CN=revoked.badssl.com</td><td style="color:#3fb950;white-space:nowrap">2026-06-08 <span style="color:#8b949e;font-size:0.78rem">(83d)</span></td><td class="mono" style="white-space:nowrap">EC-secp256r1 (256)</td><td class="mono" style="font-size:0.78rem">ECDSA-with-SHA384</td><td style="font-size:0.78rem;max-width:180px;overflow:hidden;text-overflow:ellipsis" title="revoked.badssl.com">revoked.badssl.com</td></tr>
+</tbody></table></div></div></div>
+<div class="tab-content" id="tab-timeline" role="tabpanel">
+<div class="section"><h2>Certificate Timeline</h2>
+<p style="color:var(--text-secondary);margin-bottom:16px">Validity periods for all certificates. Vertical line marks today.</p>
+<div class="tl-axis">
+<span>2013-04</span>
+<span style="color:var(--link);font-weight:600">Today</span>
+<span>2057-03</span>
+</div>
+<div class="tl-row"><div class="tl-label mono" title="CN=*.badssl.com,OU=PositiveSSL Wildcard,OU=Domain Control Validated">expired.badssl.com:443 / Leaf<br><span style="color:var(--text-secondary);font-size:0.75rem">CN=*.badssl.com,OU=PositiveSSL... (expired 3991d ago)</span></div><div class="tl-track"><div class="tl-bar" style="left:4.55%;width:0.50%;background:#f85149"></div><div class="tl-today" style="left:29.45%"></div></div></div>
+<div class="tl-row"><div class="tl-label mono" title="CN=www.digicert.com,O=DigiCert\, Inc.,L=Lehi,ST=Utah,C=US,2.5.4.5=5299537-0142,2.5.4.15=Private Organization,1.3.6.1.4.1.311.60.2.1.2=Utah,1.3.6.1.4.1.311.60.2.1.3=US">digicert.com:443 / Leaf<br><span style="color:var(--text-secondary);font-size:0.75rem">CN=www.digicert.com,O=DigiCert... (38d)</span></div><div class="tl-track"><div class="tl-bar" style="left:29.39%;width:0.50%;background:#3fb950"></div><div class="tl-today" style="left:29.45%"></div></div></div>
+<div class="tl-row"><div class="tl-label mono" title="CN=*.google.com">google.com:443 / Leaf<br><span style="color:var(--text-secondary);font-size:0.75rem">CN=*.google.com (41d)</span></div><div class="tl-track"><div class="tl-bar" style="left:29.18%;width:0.52%;background:#3fb950"></div><div class="tl-today" style="left:29.45%"></div></div></div>
+<div class="tl-row"><div class="tl-label mono" title="CN=github.com">github.com:443 / Leaf<br><span style="color:var(--text-secondary);font-size:0.75rem">CN=github.com (79d)</span></div><div class="tl-track"><div class="tl-bar" style="left:29.38%;width:0.56%;background:#3fb950"></div><div class="tl-today" style="left:29.45%"></div></div></div>
+<div class="tl-row"><div class="tl-label mono" title="CN=revoked.badssl.com">revoked.badssl.com:443 / Leaf<br><span style="color:var(--text-secondary);font-size:0.75rem">CN=revoked.badssl.com (83d)</span></div><div class="tl-track"><div class="tl-bar" style="left:29.41%;width:0.56%;background:#3fb950"></div><div class="tl-today" style="left:29.45%"></div></div></div>
+<div class="tl-row"><div class="tl-label mono" title="CN=kube-apiserver">10.1.10.100:6443 / Leaf<br><span style="color:var(--text-secondary);font-size:0.75rem">CN=kube-apiserver (284d)</span></div><div class="tl-track"><div class="tl-bar" style="left:28.95%;width:2.28%;background:#3fb950"></div><div class="tl-today" style="left:29.45%"></div></div></div>
+<div class="tl-row"><div class="tl-label mono" title="CN=mini-pve.lab,O=Proxmox Virtual Environment,OU=PVE Cluster Node">10.1.10.3:8006 / Leaf<br><span style="color:var(--text-secondary);font-size:0.75rem">CN=mini-pve.lab,O=Proxmox Virt... (436d)</span></div><div class="tl-track"><div class="tl-bar" style="left:27.62%;width:4.55%;background:#3fb950"></div><div class="tl-today" style="left:29.45%"></div></div></div>
+<div class="tl-row"><div class="tl-label mono" title="CN=pve-master.lan,O=Proxmox Virtual Environment,OU=PVE Cluster Node">10.1.10.245:8006 / Leaf<br><span style="color:var(--text-secondary);font-size:0.75rem">CN=pve-master.lan,O=Proxmox Vi... (601d)</span></div><div class="tl-track"><div class="tl-bar" style="left:28.65%;width:4.55%;background:#3fb950"></div><div class="tl-today" style="left:29.45%"></div></div></div>
+<div class="tl-row"><div class="tl-label mono" title="CN=agents-pve.local,O=Proxmox Virtual Environment,OU=PVE Cluster Node">10.1.10.5:8006 / Leaf<br><span style="color:var(--text-secondary);font-size:0.75rem">CN=agents-pve.local,O=Proxmox ... (693d)</span></div><div class="tl-track"><div class="tl-bar" style="left:29.22%;width:4.55%;background:#3fb950"></div><div class="tl-today" style="left:29.45%"></div></div></div>
+<div class="tl-row"><div class="tl-label mono" title="CN=*.badssl.com,O=BadSSL,L=San Francisco,ST=California,C=US">self-signed.badssl.com:443 / Leaf<br><span style="color:var(--text-secondary);font-size:0.75rem">CN=*.badssl.com,O=BadSSL,L=San... (723d)</span></div><div class="tl-track"><div class="tl-bar" style="left:29.41%;width:4.55%;background:#3fb950"></div><div class="tl-today" style="left:29.45%"></div></div></div>
+<div class="tl-row"><div class="tl-label mono" title="CN=pi.hole">10.1.10.250:443 / Leaf<br><span style="color:var(--text-secondary);font-size:0.75rem">CN=pi.hole (10588d)</span></div><div class="tl-track"><div class="tl-bar" style="left:27.15%;width:68.31%;background:#3fb950"></div><div class="tl-today" style="left:29.45%"></div></div></div>
+</div></div>
+<div class="tab-content" id="tab-pqc" role="tabpanel">
+<div class="section"><h2>PQC Readiness Posture</h2>
+<div class="pqc-panel">
+<h3 style="color:#58a6ff;margin-bottom:12px" class="mono">10.1.10.100:6443</h3>
+<div class="pqc-score-row">
+<div class="pqc-score-circle" style="border-color:#f85149;color:#f85149"><span class="score">2/10</span></div>
+<span class="pqc-grade" style="color:#f85149">Grade F</span>
+<span class="pqc-info">Overall: <strong style="color:#f85149">Vulnerable</strong></span>
+</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Component</th><th>Algorithm</th><th>Quantum Safety</th><th style="text-align:center">Points</th></tr></thead>
+<tbody>
+<tr><td>TLS version</td><td class="mono">TLSv1.3</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">1/1</td></tr>
+<tr><td>Key exchange</td><td class="mono">ECDHE (TLS 1.3 default)</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">0/3</td></tr>
+<tr><td>Leaf (EC-secp256r1)</td><td class="mono">ECDSA-with-SHA256</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">0/2</td></tr>
+</tbody></table></div>
+<p style="margin-top:12px">CNSA 2.0: <strong style="color:#f85149">NOT COMPLIANT</strong> <span style="color:#8b949e">&mdash; Next deadline (290 days): Networking equipment must support CNSA 2.0</span></p>
+<ul class="rec-list">
+<li>CRITICAL: No quantum protection. Begin PQC migration planning now.</li>
+<li>Enable X25519MLKEM768 hybrid key exchange.</li>
+<li>Migrate to ML-DSA-65 or composite (ML-DSA-65 + EC-secp256r1).</li>
+<li>CNSA 2.0 deadline in 290 days: Networking equipment must support CNSA 2.0</li>
+</ul>
+</div>
+<div class="pqc-panel">
+<h3 style="color:#58a6ff;margin-bottom:12px" class="mono">10.1.10.245:8006</h3>
+<div class="pqc-score-row">
+<div class="pqc-score-circle" style="border-color:#f85149;color:#f85149"><span class="score">2/10</span></div>
+<span class="pqc-grade" style="color:#f85149">Grade F</span>
+<span class="pqc-info">Overall: <strong style="color:#f85149">Vulnerable</strong></span>
+</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Component</th><th>Algorithm</th><th>Quantum Safety</th><th style="text-align:center">Points</th></tr></thead>
+<tbody>
+<tr><td>TLS version</td><td class="mono">TLSv1.3</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">1/1</td></tr>
+<tr><td>Key exchange</td><td class="mono">ECDHE (TLS 1.3 default)</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">0/3</td></tr>
+<tr><td>Leaf (RSA)</td><td class="mono">SHA256WithRSAEncryption</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">0/2</td></tr>
+</tbody></table></div>
+<p style="margin-top:12px">CNSA 2.0: <strong style="color:#f85149">NOT COMPLIANT</strong> <span style="color:#8b949e">&mdash; Next deadline (290 days): Networking equipment must support CNSA 2.0</span></p>
+<ul class="rec-list">
+<li>CRITICAL: No quantum protection. Begin PQC migration planning now.</li>
+<li>Enable X25519MLKEM768 hybrid key exchange.</li>
+<li>Migrate to ML-DSA-65 or composite (ML-DSA-65 + RSA).</li>
+<li>CNSA 2.0 deadline in 290 days: Networking equipment must support CNSA 2.0</li>
+</ul>
+</div>
+<div class="pqc-panel">
+<h3 style="color:#58a6ff;margin-bottom:12px" class="mono">10.1.10.3:8006</h3>
+<div class="pqc-score-row">
+<div class="pqc-score-circle" style="border-color:#f85149;color:#f85149"><span class="score">2/10</span></div>
+<span class="pqc-grade" style="color:#f85149">Grade F</span>
+<span class="pqc-info">Overall: <strong style="color:#f85149">Vulnerable</strong></span>
+</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Component</th><th>Algorithm</th><th>Quantum Safety</th><th style="text-align:center">Points</th></tr></thead>
+<tbody>
+<tr><td>TLS version</td><td class="mono">TLSv1.3</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">1/1</td></tr>
+<tr><td>Key exchange</td><td class="mono">ECDHE (TLS 1.3 default)</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">0/3</td></tr>
+<tr><td>Leaf (RSA)</td><td class="mono">SHA256WithRSAEncryption</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">0/2</td></tr>
+</tbody></table></div>
+<p style="margin-top:12px">CNSA 2.0: <strong style="color:#f85149">NOT COMPLIANT</strong> <span style="color:#8b949e">&mdash; Next deadline (290 days): Networking equipment must support CNSA 2.0</span></p>
+<ul class="rec-list">
+<li>CRITICAL: No quantum protection. Begin PQC migration planning now.</li>
+<li>Enable X25519MLKEM768 hybrid key exchange.</li>
+<li>Migrate to ML-DSA-65 or composite (ML-DSA-65 + RSA).</li>
+<li>CNSA 2.0 deadline in 290 days: Networking equipment must support CNSA 2.0</li>
+</ul>
+</div>
+<div class="pqc-panel">
+<h3 style="color:#58a6ff;margin-bottom:12px" class="mono">10.1.10.5:8006</h3>
+<div class="pqc-score-row">
+<div class="pqc-score-circle" style="border-color:#f85149;color:#f85149"><span class="score">2/10</span></div>
+<span class="pqc-grade" style="color:#f85149">Grade F</span>
+<span class="pqc-info">Overall: <strong style="color:#f85149">Vulnerable</strong></span>
+</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Component</th><th>Algorithm</th><th>Quantum Safety</th><th style="text-align:center">Points</th></tr></thead>
+<tbody>
+<tr><td>TLS version</td><td class="mono">TLSv1.3</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">1/1</td></tr>
+<tr><td>Key exchange</td><td class="mono">ECDHE (TLS 1.3 default)</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">0/3</td></tr>
+<tr><td>Leaf (RSA)</td><td class="mono">SHA256WithRSAEncryption</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">0/2</td></tr>
+</tbody></table></div>
+<p style="margin-top:12px">CNSA 2.0: <strong style="color:#f85149">NOT COMPLIANT</strong> <span style="color:#8b949e">&mdash; Next deadline (290 days): Networking equipment must support CNSA 2.0</span></p>
+<ul class="rec-list">
+<li>CRITICAL: No quantum protection. Begin PQC migration planning now.</li>
+<li>Enable X25519MLKEM768 hybrid key exchange.</li>
+<li>Migrate to ML-DSA-65 or composite (ML-DSA-65 + RSA).</li>
+<li>CNSA 2.0 deadline in 290 days: Networking equipment must support CNSA 2.0</li>
+</ul>
+</div>
+<div class="pqc-panel">
+<h3 style="color:#58a6ff;margin-bottom:12px" class="mono">10.1.10.250:443</h3>
+<div class="pqc-score-row">
+<div class="pqc-score-circle" style="border-color:#f85149;color:#f85149"><span class="score">2/10</span></div>
+<span class="pqc-grade" style="color:#f85149">Grade F</span>
+<span class="pqc-info">Overall: <strong style="color:#f85149">Vulnerable</strong></span>
+</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Component</th><th>Algorithm</th><th>Quantum Safety</th><th style="text-align:center">Points</th></tr></thead>
+<tbody>
+<tr><td>TLS version</td><td class="mono">TLSv1.3</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">1/1</td></tr>
+<tr><td>Key exchange</td><td class="mono">ECDHE (TLS 1.3 default)</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">0/3</td></tr>
+<tr><td>Leaf (EC-secp384r1)</td><td class="mono">ECDSA-with-SHA256</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">0/2</td></tr>
+</tbody></table></div>
+<p style="margin-top:12px">CNSA 2.0: <strong style="color:#f85149">NOT COMPLIANT</strong> <span style="color:#8b949e">&mdash; Next deadline (290 days): Networking equipment must support CNSA 2.0</span></p>
+<ul class="rec-list">
+<li>CRITICAL: No quantum protection. Begin PQC migration planning now.</li>
+<li>Enable X25519MLKEM768 hybrid key exchange.</li>
+<li>Migrate to ML-DSA-65 or composite (ML-DSA-65 + EC-secp384r1).</li>
+<li>CNSA 2.0 deadline in 290 days: Networking equipment must support CNSA 2.0</li>
+</ul>
+</div>
+<div class="pqc-panel">
+<h3 style="color:#58a6ff;margin-bottom:12px" class="mono">google.com:443</h3>
+<div class="pqc-score-row">
+<div class="pqc-score-circle" style="border-color:#f85149;color:#f85149"><span class="score">2/10</span></div>
+<span class="pqc-grade" style="color:#f85149">Grade F</span>
+<span class="pqc-info">Overall: <strong style="color:#f85149">Vulnerable</strong></span>
+</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Component</th><th>Algorithm</th><th>Quantum Safety</th><th style="text-align:center">Points</th></tr></thead>
+<tbody>
+<tr><td>TLS version</td><td class="mono">TLSv1.3</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">1/1</td></tr>
+<tr><td>Key exchange</td><td class="mono">ECDHE (TLS 1.3 default)</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">0/3</td></tr>
+<tr><td>Leaf (EC-secp256r1)</td><td class="mono">ECDSA-with-SHA256</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">0/2</td></tr>
+</tbody></table></div>
+<p style="margin-top:12px">CNSA 2.0: <strong style="color:#f85149">NOT COMPLIANT</strong> <span style="color:#8b949e">&mdash; Next deadline (290 days): Networking equipment must support CNSA 2.0</span></p>
+<ul class="rec-list">
+<li>CRITICAL: No quantum protection. Begin PQC migration planning now.</li>
+<li>Enable X25519MLKEM768 hybrid key exchange.</li>
+<li>Migrate to ML-DSA-65 or composite (ML-DSA-65 + EC-secp256r1).</li>
+<li>CNSA 2.0 deadline in 290 days: Networking equipment must support CNSA 2.0</li>
+</ul>
+</div>
+<div class="pqc-panel">
+<h3 style="color:#58a6ff;margin-bottom:12px" class="mono">digicert.com:443</h3>
+<div class="pqc-score-row">
+<div class="pqc-score-circle" style="border-color:#f85149;color:#f85149"><span class="score">2/10</span></div>
+<span class="pqc-grade" style="color:#f85149">Grade F</span>
+<span class="pqc-info">Overall: <strong style="color:#f85149">Vulnerable</strong></span>
+</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Component</th><th>Algorithm</th><th>Quantum Safety</th><th style="text-align:center">Points</th></tr></thead>
+<tbody>
+<tr><td>TLS version</td><td class="mono">TLSv1.3</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">1/1</td></tr>
+<tr><td>Key exchange</td><td class="mono">ECDHE (TLS 1.3 default)</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">0/3</td></tr>
+<tr><td>Leaf (RSA)</td><td class="mono">SHA256WithRSAEncryption</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">0/2</td></tr>
+</tbody></table></div>
+<p style="margin-top:12px">CNSA 2.0: <strong style="color:#f85149">NOT COMPLIANT</strong> <span style="color:#8b949e">&mdash; Next deadline (290 days): Networking equipment must support CNSA 2.0</span></p>
+<ul class="rec-list">
+<li>CRITICAL: No quantum protection. Begin PQC migration planning now.</li>
+<li>Enable X25519MLKEM768 hybrid key exchange.</li>
+<li>Migrate to ML-DSA-65 or composite (ML-DSA-65 + RSA).</li>
+<li>CNSA 2.0 deadline in 290 days: Networking equipment must support CNSA 2.0</li>
+</ul>
+</div>
+<div class="pqc-panel">
+<h3 style="color:#58a6ff;margin-bottom:12px" class="mono">github.com:443</h3>
+<div class="pqc-score-row">
+<div class="pqc-score-circle" style="border-color:#f85149;color:#f85149"><span class="score">2/10</span></div>
+<span class="pqc-grade" style="color:#f85149">Grade F</span>
+<span class="pqc-info">Overall: <strong style="color:#f85149">Vulnerable</strong></span>
+</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Component</th><th>Algorithm</th><th>Quantum Safety</th><th style="text-align:center">Points</th></tr></thead>
+<tbody>
+<tr><td>TLS version</td><td class="mono">TLSv1.3</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">1/1</td></tr>
+<tr><td>Key exchange</td><td class="mono">ECDHE (TLS 1.3 default)</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">0/3</td></tr>
+<tr><td>Leaf (EC-secp256r1)</td><td class="mono">ECDSA-with-SHA256</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">0/2</td></tr>
+</tbody></table></div>
+<p style="margin-top:12px">CNSA 2.0: <strong style="color:#f85149">NOT COMPLIANT</strong> <span style="color:#8b949e">&mdash; Next deadline (290 days): Networking equipment must support CNSA 2.0</span></p>
+<ul class="rec-list">
+<li>CRITICAL: No quantum protection. Begin PQC migration planning now.</li>
+<li>Enable X25519MLKEM768 hybrid key exchange.</li>
+<li>Migrate to ML-DSA-65 or composite (ML-DSA-65 + EC-secp256r1).</li>
+<li>CNSA 2.0 deadline in 290 days: Networking equipment must support CNSA 2.0</li>
+</ul>
+</div>
+<div class="pqc-panel">
+<h3 style="color:#58a6ff;margin-bottom:12px" class="mono">expired.badssl.com:443</h3>
+<div class="pqc-score-row">
+<div class="pqc-score-circle" style="border-color:#f85149;color:#f85149"><span class="score">1/10</span></div>
+<span class="pqc-grade" style="color:#f85149">Grade F</span>
+<span class="pqc-info">Overall: <strong style="color:#f85149">Vulnerable</strong></span>
+</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Component</th><th>Algorithm</th><th>Quantum Safety</th><th style="text-align:center">Points</th></tr></thead>
+<tbody>
+<tr><td>TLS version</td><td class="mono">TLSv1.2</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">0/1</td></tr>
+<tr><td>Key exchange</td><td class="mono">ECDHE</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">0/3</td></tr>
+<tr><td>Leaf (RSA)</td><td class="mono">SHA256WithRSAEncryption</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">0/2</td></tr>
+</tbody></table></div>
+<p style="margin-top:12px">CNSA 2.0: <strong style="color:#f85149">NOT COMPLIANT</strong> <span style="color:#8b949e">&mdash; Next deadline (290 days): Networking equipment must support CNSA 2.0</span></p>
+<ul class="rec-list">
+<li>CRITICAL: No quantum protection. Begin PQC migration planning now.</li>
+<li>Upgrade to TLS 1.3 — required for PQC key exchange.</li>
+<li>Enable X25519MLKEM768 hybrid key exchange.</li>
+<li>Migrate to ML-DSA-65 or composite (ML-DSA-65 + RSA).</li>
+<li>CNSA 2.0 deadline in 290 days: Networking equipment must support CNSA 2.0</li>
+</ul>
+</div>
+<div class="pqc-panel">
+<h3 style="color:#58a6ff;margin-bottom:12px" class="mono">self-signed.badssl.com:443</h3>
+<div class="pqc-score-row">
+<div class="pqc-score-circle" style="border-color:#f85149;color:#f85149"><span class="score">1/10</span></div>
+<span class="pqc-grade" style="color:#f85149">Grade F</span>
+<span class="pqc-info">Overall: <strong style="color:#f85149">Vulnerable</strong></span>
+</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Component</th><th>Algorithm</th><th>Quantum Safety</th><th style="text-align:center">Points</th></tr></thead>
+<tbody>
+<tr><td>TLS version</td><td class="mono">TLSv1.2</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">0/1</td></tr>
+<tr><td>Key exchange</td><td class="mono">ECDHE</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">0/3</td></tr>
+<tr><td>Leaf (RSA)</td><td class="mono">SHA256WithRSAEncryption</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">0/2</td></tr>
+</tbody></table></div>
+<p style="margin-top:12px">CNSA 2.0: <strong style="color:#f85149">NOT COMPLIANT</strong> <span style="color:#8b949e">&mdash; Next deadline (290 days): Networking equipment must support CNSA 2.0</span></p>
+<ul class="rec-list">
+<li>CRITICAL: No quantum protection. Begin PQC migration planning now.</li>
+<li>Upgrade to TLS 1.3 — required for PQC key exchange.</li>
+<li>Enable X25519MLKEM768 hybrid key exchange.</li>
+<li>Migrate to ML-DSA-65 or composite (ML-DSA-65 + RSA).</li>
+<li>CNSA 2.0 deadline in 290 days: Networking equipment must support CNSA 2.0</li>
+</ul>
+</div>
+<div class="pqc-panel">
+<h3 style="color:#58a6ff;margin-bottom:12px" class="mono">revoked.badssl.com:443</h3>
+<div class="pqc-score-row">
+<div class="pqc-score-circle" style="border-color:#f85149;color:#f85149"><span class="score">1/10</span></div>
+<span class="pqc-grade" style="color:#f85149">Grade F</span>
+<span class="pqc-info">Overall: <strong style="color:#f85149">Vulnerable</strong></span>
+</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Component</th><th>Algorithm</th><th>Quantum Safety</th><th style="text-align:center">Points</th></tr></thead>
+<tbody>
+<tr><td>TLS version</td><td class="mono">TLSv1.2</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">0/1</td></tr>
+<tr><td>Key exchange</td><td class="mono">ECDHE</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">0/3</td></tr>
+<tr><td>Leaf (EC-secp256r1)</td><td class="mono">ECDSA-with-SHA384</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">Vulnerable</span></td><td style="text-align:center" class="mono">0/2</td></tr>
+</tbody></table></div>
+<p style="margin-top:12px">CNSA 2.0: <strong style="color:#f85149">NOT COMPLIANT</strong> <span style="color:#8b949e">&mdash; Next deadline (290 days): Networking equipment must support CNSA 2.0</span></p>
+<ul class="rec-list">
+<li>CRITICAL: No quantum protection. Begin PQC migration planning now.</li>
+<li>Upgrade to TLS 1.3 — required for PQC key exchange.</li>
+<li>Enable X25519MLKEM768 hybrid key exchange.</li>
+<li>Migrate to ML-DSA-65 or composite (ML-DSA-65 + EC-secp256r1).</li>
+<li>CNSA 2.0 deadline in 290 days: Networking equipment must support CNSA 2.0</li>
+</ul>
+</div>
+</div></div>
+<div class="tab-content" id="tab-revocation" role="tabpanel">
+<div class="section"><h2>Revocation Status</h2>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Host</th>
+<th>Method</th><th>Status</th><th>Details</th><th>URL</th></tr></thead>
+<tbody>
+<tr><td class="mono" style="white-space:nowrap" rowspan="3">10.1.10.100:6443</td><td>OCSP</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">SKIPPED</span></td><td>No AIA extension — OCSP not available</td><td class="mono" style="font-size:0.78rem;color:#8b949e">&mdash;</td></tr>
+<tr><td>CRL</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">SKIPPED</span></td><td>No CRL distribution points</td><td class="mono" style="font-size:0.78rem;color:#8b949e">&mdash;</td></tr>
+<tr><td>CT</td><td><span class="pill" style="color:#3fb950;border:1px solid #3fb950">LOGGED</span></td><td>Found 318 CT log entries for kubernetes</td><td class="mono" style="font-size:0.78rem;color:#8b949e">https://crt.sh/?q=kubernetes</td></tr>
+<tr><td class="mono" style="white-space:nowrap" rowspan="3">10.1.10.245:8006</td><td>OCSP</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">SKIPPED</span></td><td>No AIA extension — OCSP not available</td><td class="mono" style="font-size:0.78rem;color:#8b949e">&mdash;</td></tr>
+<tr><td>CRL</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">SKIPPED</span></td><td>No CRL distribution points</td><td class="mono" style="font-size:0.78rem;color:#8b949e">&mdash;</td></tr>
+<tr><td>CT</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">N/A</span></td><td>CT log query failed: </td><td class="mono" style="font-size:0.78rem;color:#8b949e">https://crt.sh/?q=localhost</td></tr>
+<tr><td class="mono" style="white-space:nowrap" rowspan="3">10.1.10.3:8006</td><td>OCSP</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">SKIPPED</span></td><td>No AIA extension — OCSP not available</td><td class="mono" style="font-size:0.78rem;color:#8b949e">&mdash;</td></tr>
+<tr><td>CRL</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">SKIPPED</span></td><td>No CRL distribution points</td><td class="mono" style="font-size:0.78rem;color:#8b949e">&mdash;</td></tr>
+<tr><td>CT</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">N/A</span></td><td>CT log query failed: </td><td class="mono" style="font-size:0.78rem;color:#8b949e">https://crt.sh/?q=localhost</td></tr>
+<tr><td class="mono" style="white-space:nowrap" rowspan="3">10.1.10.5:8006</td><td>OCSP</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">SKIPPED</span></td><td>No AIA extension — OCSP not available</td><td class="mono" style="font-size:0.78rem;color:#8b949e">&mdash;</td></tr>
+<tr><td>CRL</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">SKIPPED</span></td><td>No CRL distribution points</td><td class="mono" style="font-size:0.78rem;color:#8b949e">&mdash;</td></tr>
+<tr><td>CT</td><td><span class="pill" style="color:#3fb950;border:1px solid #3fb950">LOGGED</span></td><td>Found 5755 CT log entries for localhost</td><td class="mono" style="font-size:0.78rem;color:#8b949e">https://crt.sh/?q=localhost</td></tr>
+<tr><td class="mono" style="white-space:nowrap" rowspan="3">10.1.10.250:443</td><td>OCSP</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">SKIPPED</span></td><td>No AIA extension — OCSP not available</td><td class="mono" style="font-size:0.78rem;color:#8b949e">&mdash;</td></tr>
+<tr><td>CRL</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">SKIPPED</span></td><td>No CRL distribution points</td><td class="mono" style="font-size:0.78rem;color:#8b949e">&mdash;</td></tr>
+<tr><td>CT</td><td><span class="pill" style="color:#d29922;border:1px solid #d29922">NOT FOUND</span></td><td>No CT log entries found for pi.hole</td><td class="mono" style="font-size:0.78rem;color:#8b949e">https://crt.sh/?q=pi.hole</td></tr>
+<tr><td class="mono" style="white-space:nowrap" rowspan="3">google.com:443</td><td>OCSP</td><td><span class="pill" style="color:#d29922;border:1px solid #d29922">UNKNOWN</span></td><td>No issuer certificate — cannot build OCSP request</td><td class="mono" style="font-size:0.78rem;color:#8b949e">http://o.pki.goog/we2</td></tr>
+<tr><td>CRL</td><td><span class="pill" style="color:#3fb950;border:1px solid #3fb950">GOOD</span></td><td>Certificate not found in CRL (not revoked)</td><td class="mono" style="font-size:0.78rem;color:#8b949e">http://c.pki.goog/we2/xuzt3PU9F_w.crl</td></tr>
+<tr><td>CT</td><td><span class="pill" style="color:#3fb950;border:1px solid #3fb950">LOGGED</span></td><td>Found 1152 CT log entries for google.com</td><td class="mono" style="font-size:0.78rem;color:#8b949e">https://crt.sh/?q=google.com</td></tr>
+<tr><td class="mono" style="white-space:nowrap" rowspan="3">digicert.com:443</td><td>OCSP</td><td><span class="pill" style="color:#d29922;border:1px solid #d29922">UNKNOWN</span></td><td>No issuer certificate — cannot build OCSP request</td><td class="mono" style="font-size:0.78rem;color:#8b949e">http://ocsp.digicert.com</td></tr>
+<tr><td>CRL</td><td><span class="pill" style="color:#3fb950;border:1px solid #3fb950">GOOD</span></td><td>Certificate not found in CRL (not revoked)</td><td class="mono" style="font-size:0.78rem;color:#8b949e">http://crl3.digicert.com/DigiCertEVRSACAG2.crl</td></tr>
+<tr><td>CT</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">N/A</span></td><td>crt.sh returned HTTP 429</td><td class="mono" style="font-size:0.78rem;color:#8b949e">https://crt.sh/?q=www.digicert.com</td></tr>
+<tr><td class="mono" style="white-space:nowrap" rowspan="3">github.com:443</td><td>OCSP</td><td><span class="pill" style="color:#d29922;border:1px solid #d29922">UNKNOWN</span></td><td>No issuer certificate — cannot build OCSP request</td><td class="mono" style="font-size:0.78rem;color:#8b949e">http://ocsp.sectigo.com</td></tr>
+<tr><td>CRL</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">SKIPPED</span></td><td>No CRL distribution points</td><td class="mono" style="font-size:0.78rem;color:#8b949e">&mdash;</td></tr>
+<tr><td>CT</td><td><span class="pill" style="color:#3fb950;border:1px solid #3fb950">LOGGED</span></td><td>Found 1002 CT log entries for github.com</td><td class="mono" style="font-size:0.78rem;color:#8b949e">https://crt.sh/?q=github.com</td></tr>
+<tr><td class="mono" style="white-space:nowrap" rowspan="3">expired.badssl.com:443</td><td>OCSP</td><td><span class="pill" style="color:#d29922;border:1px solid #d29922">UNKNOWN</span></td><td>No issuer certificate — cannot build OCSP request</td><td class="mono" style="font-size:0.78rem;color:#8b949e">http://ocsp.comodoca.com</td></tr>
+<tr><td>CRL</td><td><span class="pill" style="color:#3fb950;border:1px solid #3fb950">GOOD</span></td><td>Certificate not found in CRL (not revoked)</td><td class="mono" style="font-size:0.78rem;color:#8b949e">http://crl.comodoca.com/COMODORSADomainValidationSecureServerCA.crl</td></tr>
+<tr><td>CT</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">N/A</span></td><td>crt.sh returned HTTP 429</td><td class="mono" style="font-size:0.78rem;color:#8b949e">https://crt.sh/?q=badssl.com</td></tr>
+<tr><td class="mono" style="white-space:nowrap" rowspan="3">self-signed.badssl.com:443</td><td>OCSP</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">SKIPPED</span></td><td>No AIA extension — OCSP not available</td><td class="mono" style="font-size:0.78rem;color:#8b949e">&mdash;</td></tr>
+<tr><td>CRL</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">SKIPPED</span></td><td>No CRL distribution points</td><td class="mono" style="font-size:0.78rem;color:#8b949e">&mdash;</td></tr>
+<tr><td>CT</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">N/A</span></td><td>CT log query failed: </td><td class="mono" style="font-size:0.78rem;color:#8b949e">https://crt.sh/?q=badssl.com</td></tr>
+<tr><td class="mono" style="white-space:nowrap" rowspan="3">revoked.badssl.com:443</td><td>OCSP <strong style="color:#f85149">REVOKED</strong></td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">SKIPPED</span></td><td>No OCSP responder in AIA</td><td class="mono" style="font-size:0.78rem;color:#8b949e">&mdash;</td></tr>
+<tr><td>CRL</td><td><span class="pill" style="color:#f85149;border:1px solid #f85149">REVOKED</span></td><td>REVOKED via CRL (serial 65b2746e201864c96d36c0f98c886fdb2f5)</td><td class="mono" style="font-size:0.78rem;color:#8b949e">http://e8.c.lencr.org/118.crl</td></tr>
+<tr><td>CT</td><td><span class="pill" style="color:#3fb950;border:1px solid #3fb950">LOGGED</span></td><td>Found 30 CT log entries for revoked.badssl.com</td><td class="mono" style="font-size:0.78rem;color:#8b949e">https://crt.sh/?q=revoked.badssl.com</td></tr>
+</tbody></table></div></div></div>
+<div class="tab-content" id="tab-cbom" role="tabpanel">
+<div class="section"><h2>Cryptographic Bill of Materials</h2>
+<p style="color:var(--text-secondary);margin-bottom:16px">CycloneDX 1.6 cryptographic asset inventory across all scanned hosts.</p>
+<div class="filter-bar"><input type="text" id="cbom-filter" placeholder="Filter assets..." class="filter-input" aria-label="Filter CBOM assets"><button class="export-btn" onclick="exportCSV('cbom-table','notafter-cbom')">Export CSV</button></div>
+<div class="table-wrap"><table id="cbom-table">
+<thead><tr>
+<th class="sortable" data-col="0">Host</th>
+<th>Asset</th><th>Type</th><th class="sortable" data-col="3">Algorithm</th><th>Key</th><th>Size</th><th>Quantum Readiness</th>
+</tr></thead><tbody>
+<tr><td class="mono" style="white-space:nowrap">10.1.10.100:6443</td><td class="mono" style="font-size:0.82rem">10.1.10.100-leaf</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">CERTIFICATE</span></td><td class="mono" style="font-size:0.82rem">ECDSA-with-SHA256</td><td class="mono">EC-secp256r1</td><td style="text-align:center">256</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">quantum-vulnerable</span></td></tr>
+<tr><td class="mono" style="white-space:nowrap">10.1.10.100:6443</td><td class="mono" style="font-size:0.82rem">10.1.10.100-tls-connection</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">PROTOCOL</span></td><td class="mono" style="font-size:0.82rem">TLS_AES_128_GCM_SHA256</td><td class="mono">ECDHE (TLS 1.3 default)</td><td style="text-align:center">&mdash;</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">quantum-vulnerable</span></td></tr>
+<tr><td class="mono" style="white-space:nowrap">10.1.10.245:8006</td><td class="mono" style="font-size:0.82rem">10.1.10.245-leaf</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">CERTIFICATE</span></td><td class="mono" style="font-size:0.82rem">SHA256WithRSAEncryption</td><td class="mono">RSA</td><td style="text-align:center">2048</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">quantum-vulnerable</span></td></tr>
+<tr><td class="mono" style="white-space:nowrap">10.1.10.245:8006</td><td class="mono" style="font-size:0.82rem">10.1.10.245-tls-connection</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">PROTOCOL</span></td><td class="mono" style="font-size:0.82rem">TLS_AES_256_GCM_SHA384</td><td class="mono">ECDHE (TLS 1.3 default)</td><td style="text-align:center">&mdash;</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">quantum-vulnerable</span></td></tr>
+<tr><td class="mono" style="white-space:nowrap">10.1.10.3:8006</td><td class="mono" style="font-size:0.82rem">10.1.10.3-leaf</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">CERTIFICATE</span></td><td class="mono" style="font-size:0.82rem">SHA256WithRSAEncryption</td><td class="mono">RSA</td><td style="text-align:center">2048</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">quantum-vulnerable</span></td></tr>
+<tr><td class="mono" style="white-space:nowrap">10.1.10.3:8006</td><td class="mono" style="font-size:0.82rem">10.1.10.3-tls-connection</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">PROTOCOL</span></td><td class="mono" style="font-size:0.82rem">TLS_AES_256_GCM_SHA384</td><td class="mono">ECDHE (TLS 1.3 default)</td><td style="text-align:center">&mdash;</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">quantum-vulnerable</span></td></tr>
+<tr><td class="mono" style="white-space:nowrap">10.1.10.5:8006</td><td class="mono" style="font-size:0.82rem">10.1.10.5-leaf</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">CERTIFICATE</span></td><td class="mono" style="font-size:0.82rem">SHA256WithRSAEncryption</td><td class="mono">RSA</td><td style="text-align:center">2048</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">quantum-vulnerable</span></td></tr>
+<tr><td class="mono" style="white-space:nowrap">10.1.10.5:8006</td><td class="mono" style="font-size:0.82rem">10.1.10.5-tls-connection</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">PROTOCOL</span></td><td class="mono" style="font-size:0.82rem">TLS_AES_256_GCM_SHA384</td><td class="mono">ECDHE (TLS 1.3 default)</td><td style="text-align:center">&mdash;</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">quantum-vulnerable</span></td></tr>
+<tr><td class="mono" style="white-space:nowrap">10.1.10.250:443</td><td class="mono" style="font-size:0.82rem">10.1.10.250-leaf</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">CERTIFICATE</span></td><td class="mono" style="font-size:0.82rem">ECDSA-with-SHA256</td><td class="mono">EC-secp384r1</td><td style="text-align:center">384</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">quantum-vulnerable</span></td></tr>
+<tr><td class="mono" style="white-space:nowrap">10.1.10.250:443</td><td class="mono" style="font-size:0.82rem">10.1.10.250-tls-connection</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">PROTOCOL</span></td><td class="mono" style="font-size:0.82rem">TLS_AES_256_GCM_SHA384</td><td class="mono">ECDHE (TLS 1.3 default)</td><td style="text-align:center">&mdash;</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">quantum-vulnerable</span></td></tr>
+<tr><td class="mono" style="white-space:nowrap">google.com:443</td><td class="mono" style="font-size:0.82rem">google.com-leaf</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">CERTIFICATE</span></td><td class="mono" style="font-size:0.82rem">ECDSA-with-SHA256</td><td class="mono">EC-secp256r1</td><td style="text-align:center">256</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">quantum-vulnerable</span></td></tr>
+<tr><td class="mono" style="white-space:nowrap">google.com:443</td><td class="mono" style="font-size:0.82rem">google.com-tls-connection</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">PROTOCOL</span></td><td class="mono" style="font-size:0.82rem">TLS_AES_256_GCM_SHA384</td><td class="mono">ECDHE (TLS 1.3 default)</td><td style="text-align:center">&mdash;</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">quantum-vulnerable</span></td></tr>
+<tr><td class="mono" style="white-space:nowrap">digicert.com:443</td><td class="mono" style="font-size:0.82rem">digicert.com-leaf</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">CERTIFICATE</span></td><td class="mono" style="font-size:0.82rem">SHA256WithRSAEncryption</td><td class="mono">RSA</td><td style="text-align:center">2048</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">quantum-vulnerable</span></td></tr>
+<tr><td class="mono" style="white-space:nowrap">digicert.com:443</td><td class="mono" style="font-size:0.82rem">digicert.com-tls-connection</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">PROTOCOL</span></td><td class="mono" style="font-size:0.82rem">TLS_AES_128_GCM_SHA256</td><td class="mono">ECDHE (TLS 1.3 default)</td><td style="text-align:center">&mdash;</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">quantum-vulnerable</span></td></tr>
+<tr><td class="mono" style="white-space:nowrap">github.com:443</td><td class="mono" style="font-size:0.82rem">github.com-leaf</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">CERTIFICATE</span></td><td class="mono" style="font-size:0.82rem">ECDSA-with-SHA256</td><td class="mono">EC-secp256r1</td><td style="text-align:center">256</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">quantum-vulnerable</span></td></tr>
+<tr><td class="mono" style="white-space:nowrap">github.com:443</td><td class="mono" style="font-size:0.82rem">github.com-tls-connection</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">PROTOCOL</span></td><td class="mono" style="font-size:0.82rem">TLS_AES_128_GCM_SHA256</td><td class="mono">ECDHE (TLS 1.3 default)</td><td style="text-align:center">&mdash;</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">quantum-vulnerable</span></td></tr>
+<tr><td class="mono" style="white-space:nowrap">expired.badssl.com:443</td><td class="mono" style="font-size:0.82rem">expired.badssl.com-leaf</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">CERTIFICATE</span></td><td class="mono" style="font-size:0.82rem">SHA256WithRSAEncryption</td><td class="mono">RSA</td><td style="text-align:center">2048</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">quantum-vulnerable</span></td></tr>
+<tr><td class="mono" style="white-space:nowrap">expired.badssl.com:443</td><td class="mono" style="font-size:0.82rem">expired.badssl.com-tls-connection</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">PROTOCOL</span></td><td class="mono" style="font-size:0.82rem">ECDHE-RSA-AES128-GCM-SHA256</td><td class="mono">ECDHE</td><td style="text-align:center">&mdash;</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">quantum-vulnerable</span></td></tr>
+<tr><td class="mono" style="white-space:nowrap">self-signed.badssl.com:443</td><td class="mono" style="font-size:0.82rem">self-signed.badssl.com-leaf</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">CERTIFICATE</span></td><td class="mono" style="font-size:0.82rem">SHA256WithRSAEncryption</td><td class="mono">RSA</td><td style="text-align:center">2048</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">quantum-vulnerable</span></td></tr>
+<tr><td class="mono" style="white-space:nowrap">self-signed.badssl.com:443</td><td class="mono" style="font-size:0.82rem">self-signed.badssl.com-tls-connection</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">PROTOCOL</span></td><td class="mono" style="font-size:0.82rem">ECDHE-RSA-AES128-GCM-SHA256</td><td class="mono">ECDHE</td><td style="text-align:center">&mdash;</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">quantum-vulnerable</span></td></tr>
+<tr><td class="mono" style="white-space:nowrap">revoked.badssl.com:443</td><td class="mono" style="font-size:0.82rem">revoked.badssl.com-leaf</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">CERTIFICATE</span></td><td class="mono" style="font-size:0.82rem">ECDSA-with-SHA384</td><td class="mono">EC-secp256r1</td><td style="text-align:center">256</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">quantum-vulnerable</span></td></tr>
+<tr><td class="mono" style="white-space:nowrap">revoked.badssl.com:443</td><td class="mono" style="font-size:0.82rem">revoked.badssl.com-tls-connection</td><td><span class="pill" style="color:#58a6ff;border:1px solid #58a6ff">PROTOCOL</span></td><td class="mono" style="font-size:0.82rem">ECDHE-ECDSA-AES128-GCM-SHA256</td><td class="mono">ECDHE</td><td style="text-align:center">&mdash;</td><td><span class="pill" style="color:#8b949e;border:1px solid #8b949e">quantum-vulnerable</span></td></tr>
+</tbody></table></div>
+<details style="margin-top:16px"><summary style="cursor:pointer;color:#58a6ff;font-size:0.88rem">View raw CycloneDX JSON</summary><pre style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;padding:16px;margin-top:8px;overflow-x:auto;font-size:0.78rem;max-height:400px;overflow-y:auto"><code>{
+  &quot;bomFormat&quot;: &quot;CycloneDX&quot;,
+  &quot;specVersion&quot;: &quot;1.6&quot;,
+  &quot;components&quot;: [
+    {
+      &quot;type&quot;: &quot;cryptographic-asset&quot;,
+      &quot;name&quot;: &quot;10.1.10.100-leaf&quot;,
+      &quot;description&quot;: &quot;CN=kube-apiserver&quot;,
+      &quot;cryptoProperties&quot;: {
+        &quot;assetType&quot;: &quot;certificate&quot;,
+        &quot;algorithmProperties&quot;: {
+          &quot;algorithm&quot;: &quot;EC-secp256r1&quot;,
+          &quot;keySize&quot;: 256,
+          &quot;signatureAlgorithm&quot;: &quot;ECDSA-with-SHA256&quot;,
+          &quot;signatureAlgorithmOID&quot;: &quot;1.2.840.10045.4.3.2&quot;
+        },
+        &quot;certificateProperties&quot;: {
+          &quot;subjectName&quot;: &quot;CN=kube-apiserver&quot;,
+          &quot;issuerName&quot;: &quot;CN=rke2-server-ca@1766772046&quot;,
+          &quot;notBefore&quot;: &quot;2025-12-26T18:00:46+00:00&quot;,
+          &quot;notAfter&quot;: &quot;2026-12-26T18:00:46+00:00&quot;,
+          &quot;serialNumber&quot;: &quot;51d4c0fa753d8984&quot;,
+          &quot;subjectAlternativeNames&quot;: [
+            &quot;kubernetes&quot;,
+            &quot;kubernetes.default&quot;,
+            &quot;kubernetes.default.svc&quot;,
+            &quot;kubernetes.default.svc.cluster.local&quot;,
+            &quot;localhost&quot;,
+            &quot;pca.sdpnow.local&quot;,
+            &quot;127.0.0.1&quot;,
+            &quot;::1&quot;,
+            &quot;10.1.10.100&quot;,
+            &quot;10.43.0.1&quot;
+          ],
+          &quot;isSelfSigned&quot;: false,
+          &quot;isCA&quot;: false
+        },
+        &quot;quantumReadiness&quot;: &quot;quantum-vulnerable&quot;
+      }
+    },
+    {
+      &quot;type&quot;: &quot;cryptographic-asset&quot;,
+      &quot;name&quot;: &quot;10.1.10.100-tls-connection&quot;,
+      &quot;description&quot;: &quot;TLS connection to 10.1.10.100:6443&quot;,
+      &quot;cryptoProperties&quot;: {
+        &quot;assetType&quot;: &quot;protocol&quot;,
+        &quot;protocolProperties&quot;: {
+          &quot;tlsVersion&quot;: &quot;TLSv1.3&quot;,
+          &quot;cipherSuite&quot;: &quot;TLS_AES_128_GCM_SHA256&quot;,
+          &quot;keyExchange&quot;: &quot;ECDHE (TLS 1.3 default)&quot;
+        },
+        &quot;quantumReadiness&quot;: &quot;quantum-vulnerable&quot;
+      }
+    },
+    {
+      &quot;type&quot;: &quot;cryptographic-asset&quot;,
+      &quot;name&quot;: &quot;10.1.10.245-leaf&quot;,
+      &quot;description&quot;: &quot;CN=pve-master.lan,O=Proxmox Virtual Environment,OU=PVE Cluster Node&quot;,
+      &quot;cryptoProperties&quot;: {
+        &quot;assetType&quot;: &quot;certificate&quot;,
+        &quot;algorithmProperties&quot;: {
+          &quot;algorithm&quot;: &quot;RSA&quot;,
+          &quot;keySize&quot;: 2048,
+          &quot;signatureAlgorithm&quot;: &quot;SHA256WithRSAEncryption&quot;,
+          &quot;signatureAlgorithmOID&quot;: &quot;1.2.840.113549.1.1.11&quot;
+        },
+        &quot;certificateProperties&quot;: {
+          &quot;subjectName&quot;: &quot;CN=pve-master.lan,O=Proxmox Virtual Environment,OU=PVE Cluster Node&quot;,
+          &quot;issuerName&quot;: &quot;O=PVE Cluster Manager CA,OU=a59ca087-02a3-4806-9835-325487e16960,CN=Proxmox Virtual Environment&quot;,
+          &quot;notBefore&quot;: &quot;2025-11-08T07:04:18+00:00&quot;,
+          &quot;notAfter&quot;: &quot;2027-11-08T07:04:18+00:00&quot;,
+          &quot;serialNumber&quot;: &quot;1&quot;,
+          &quot;subjectAlternativeNames&quot;: [
+            &quot;localhost&quot;,
+            &quot;pve-master&quot;,
+            &quot;pve-master.lan&quot;,
+            &quot;127.0.0.1&quot;,
+            &quot;::1&quot;,
+            &quot;10.1.10.245&quot;
+          ],
+          &quot;isSelfSigned&quot;: false,
+          &quot;isCA&quot;: false
+        },
+        &quot;quantumReadiness&quot;: &quot;quantum-vulnerable&quot;
+      }
+    },
+    {
+      &quot;type&quot;: &quot;cryptographic-asset&quot;,
+      &quot;name&quot;: &quot;10.1.10.245-tls-connection&quot;,
+      &quot;description&quot;: &quot;TLS connection to 10.1.10.245:8006&quot;,
+      &quot;cryptoProperties&quot;: {
+        &quot;assetType&quot;: &quot;protocol&quot;,
+        &quot;protocolProperties&quot;: {
+          &quot;tlsVersion&quot;: &quot;TLSv1.3&quot;,
+          &quot;cipherSuite&quot;: &quot;TLS_AES_256_GCM_SHA384&quot;,
+          &quot;keyExchange&quot;: &quot;ECDHE (TLS 1.3 default)&quot;
+        },
+        &quot;quantumReadiness&quot;: &quot;quantum-vulnerable&quot;
+      }
+    },
+    {
+      &quot;type&quot;: &quot;cryptographic-asset&quot;,
+      &quot;name&quot;: &quot;10.1.10.3-leaf&quot;,
+      &quot;description&quot;: &quot;CN=mini-pve.lab,O=Proxmox Virtual Environment,OU=PVE Cluster Node&quot;,
+      &quot;cryptoProperties&quot;: {
+        &quot;assetType&quot;: &quot;certificate&quot;,
+        &quot;algorithmProperties&quot;: {
+          &quot;algorithm&quot;: &quot;RSA&quot;,
+          &quot;keySize&quot;: 2048,
+          &quot;signatureAlgorithm&quot;: &quot;SHA256WithRSAEncryption&quot;,
+          &quot;signatureAlgorithmOID&quot;: &quot;1.2.840.113549.1.1.11&quot;
+        },
+        &quot;certificateProperties&quot;: {
+          &quot;subjectName&quot;: &quot;CN=mini-pve.lab,O=Proxmox Virtual Environment,OU=PVE Cluster Node&quot;,
+          &quot;issuerName&quot;: &quot;O=PVE Cluster Manager CA,OU=2e8dbe9e-aefd-4534-a0bc-dc5e220ae1fb,CN=Proxmox Virtual Environment&quot;,
+          &quot;notBefore&quot;: &quot;2025-05-27T13:08:33+00:00&quot;,
+          &quot;notAfter&quot;: &quot;2027-05-27T13:08:33+00:00&quot;,
+          &quot;serialNumber&quot;: &quot;1&quot;,
+          &quot;subjectAlternativeNames&quot;: [
+            &quot;localhost&quot;,
+            &quot;mini-pve&quot;,
+            &quot;mini-pve.lab&quot;,
+            &quot;127.0.0.1&quot;,
+            &quot;::1&quot;,
+            &quot;10.1.10.86&quot;
+          ],
+          &quot;isSelfSigned&quot;: false,
+          &quot;isCA&quot;: false
+        },
+        &quot;quantumReadiness&quot;: &quot;quantum-vulnerable&quot;
+      }
+    },
+    {
+      &quot;type&quot;: &quot;cryptographic-asset&quot;,
+      &quot;name&quot;: &quot;10.1.10.3-tls-connection&quot;,
+      &quot;description&quot;: &quot;TLS connection to 10.1.10.3:8006&quot;,
+      &quot;cryptoProperties&quot;: {
+        &quot;assetType&quot;: &quot;protocol&quot;,
+        &quot;protocolProperties&quot;: {
+          &quot;tlsVersion&quot;: &quot;TLSv1.3&quot;,
+          &quot;cipherSuite&quot;: &quot;TLS_AES_256_GCM_SHA384&quot;,
+          &quot;keyExchange&quot;: &quot;ECDHE (TLS 1.3 default)&quot;
+        },
+        &quot;quantumReadiness&quot;: &quot;quantum-vulnerable&quot;
+      }
+    },
+    {
+      &quot;type&quot;: &quot;cryptographic-asset&quot;,
+      &quot;name&quot;: &quot;10.1.10.5-leaf&quot;,
+      &quot;description&quot;: &quot;CN=agents-pve.local,O=Proxmox Virtual Environment,OU=PVE Cluster Node&quot;,
+      &quot;cryptoProperties&quot;: {
+        &quot;assetType&quot;: &quot;certificate&quot;,
+        &quot;algorithmProperties&quot;: {
+          &quot;algorithm&quot;: &quot;RSA&quot;,
+          &quot;keySize&quot;: 2048,
+          &quot;signatureAlgorithm&quot;: &quot;SHA256WithRSAEncryption&quot;,
+          &quot;signatureAlgorithmOID&quot;: &quot;1.2.840.113549.1.1.11&quot;
+        },
+        &quot;certificateProperties&quot;: {
+          &quot;subjectName&quot;: &quot;CN=agents-pve.local,O=Proxmox Virtual Environment,OU=PVE Cluster Node&quot;,
+          &quot;issuerName&quot;: &quot;O=PVE Cluster Manager CA,OU=6b8c52e8-fd8e-48f0-acda-dfbc437feda0,CN=Proxmox Virtual Environment&quot;,
+          &quot;notBefore&quot;: &quot;2026-02-08T16:52:47+00:00&quot;,
+          &quot;notAfter&quot;: &quot;2028-02-08T16:52:47+00:00&quot;,
+          &quot;serialNumber&quot;: &quot;3&quot;,
+          &quot;subjectAlternativeNames&quot;: [
+            &quot;localhost&quot;,
+            &quot;agents-pve&quot;,
+            &quot;agents-pve.local&quot;,
+            &quot;127.0.0.1&quot;,
+            &quot;::1&quot;,
+            &quot;10.1.10.5&quot;
+          ],
+          &quot;isSelfSigned&quot;: false,
+          &quot;isCA&quot;: false
+        },
+        &quot;quantumReadiness&quot;: &quot;quantum-vulnerable&quot;
+      }
+    },
+    {
+      &quot;type&quot;: &quot;cryptographic-asset&quot;,
+      &quot;name&quot;: &quot;10.1.10.5-tls-connection&quot;,
+      &quot;description&quot;: &quot;TLS connection to 10.1.10.5:8006&quot;,
+      &quot;cryptoProperties&quot;: {
+        &quot;assetType&quot;: &quot;protocol&quot;,
+        &quot;protocolProperties&quot;: {
+          &quot;tlsVersion&quot;: &quot;TLSv1.3&quot;,
+          &quot;cipherSuite&quot;: &quot;TLS_AES_256_GCM_SHA384&quot;,
+          &quot;keyExchange&quot;: &quot;ECDHE (TLS 1.3 default)&quot;
+        },
+        &quot;quantumReadiness&quot;: &quot;quantum-vulnerable&quot;
+      }
+    },
+    {
+      &quot;type&quot;: &quot;cryptographic-asset&quot;,
+      &quot;name&quot;: &quot;10.1.10.250-leaf&quot;,
+      &quot;description&quot;: &quot;CN=pi.hole&quot;,
+      &quot;cryptoProperties&quot;: {
+        &quot;assetType&quot;: &quot;certificate&quot;,
+        &quot;algorithmProperties&quot;: {
+          &quot;algorithm&quot;: &quot;EC-secp384r1&quot;,
+          &quot;keySize&quot;: 384,
+          &quot;signatureAlgorithm&quot;: &quot;ECDSA-with-SHA256&quot;,
+          &quot;signatureAlgorithmOID&quot;: &quot;1.2.840.10045.4.3.2&quot;
+        },
+        &quot;certificateProperties&quot;: {
+          &quot;subjectName&quot;: &quot;CN=pi.hole&quot;,
+          &quot;issuerName&quot;: &quot;C=DE,O=Pi-hole,CN=pi.hole&quot;,
+          &quot;notBefore&quot;: &quot;2025-03-12T22:56:53+00:00&quot;,
+          &quot;notAfter&quot;: &quot;2055-03-12T22:56:53+00:00&quot;,
+          &quot;serialNumber&quot;: &quot;363033323331393833323235323130&quot;,
+          &quot;subjectAlternativeNames&quot;: [
+            &quot;pi.hole&quot;
+          ],
+          &quot;isSelfSigned&quot;: false,
+          &quot;isCA&quot;: false
+        },
+        &quot;quantumReadiness&quot;: &quot;quantum-vulnerable&quot;
+      }
+    },
+    {
+      &quot;type&quot;: &quot;cryptographic-asset&quot;,
+      &quot;name&quot;: &quot;10.1.10.250-tls-connection&quot;,
+      &quot;description&quot;: &quot;TLS connection to 10.1.10.250:443&quot;,
+      &quot;cryptoProperties&quot;: {
+        &quot;assetType&quot;: &quot;protocol&quot;,
+        &quot;protocolProperties&quot;: {
+          &quot;tlsVersion&quot;: &quot;TLSv1.3&quot;,
+          &quot;cipherSuite&quot;: &quot;TLS_AES_256_GCM_SHA384&quot;,
+          &quot;keyExchange&quot;: &quot;ECDHE (TLS 1.3 default)&quot;
+        },
+        &quot;quantumReadiness&quot;: &quot;quantum-vulnerable&quot;
+      }
+    },
+    {
+      &quot;type&quot;: &quot;cryptographic-asset&quot;,
+      &quot;name&quot;: &quot;google.com-leaf&quot;,
+      &quot;description&quot;: &quot;CN=*.google.com&quot;,
+      &quot;cryptoProperties&quot;: {
+        &quot;assetType&quot;: &quot;certificate&quot;,
+        &quot;algorithmProperties&quot;: {
+          &quot;algorithm&quot;: &quot;EC-secp256r1&quot;,
+          &quot;keySize&quot;: 256,
+          &quot;signatureAlgorithm&quot;: &quot;ECDSA-with-SHA256&quot;,
+          &quot;signatureAlgorithmOID&quot;: &quot;1.2.840.10045.4.3.2&quot;
+        },
+        &quot;certificateProperties&quot;: {
+          &quot;subjectName&quot;: &quot;CN=*.google.com&quot;,
+          &quot;issuerName&quot;: &quot;CN=WE2,O=Google Trust Services,C=US&quot;,
+          &quot;notBefore&quot;: &quot;2026-02-02T08:36:42+00:00&quot;,
+          &quot;notAfter&quot;: &quot;2026-04-27T08:36:41+00:00&quot;,
+          &quot;serialNumber&quot;: &quot;cb7c1a4879809b1f10bc72d8f4632f05&quot;,
+          &quot;subjectAlternativeNames&quot;: [
+            &quot;*.google.com&quot;,
+            &quot;*.appengine.google.com&quot;,
+            &quot;*.bdn.dev&quot;,
+            &quot;*.origin-test.bdn.dev&quot;,
+            &quot;*.cloud.google.com&quot;,
+            &quot;*.crowdsource.google.com&quot;,
+            &quot;*.datacompute.google.com&quot;,
+            &quot;*.google.ca&quot;,
+            &quot;*.google.cl&quot;,
+            &quot;*.google.co.in&quot;,
+            &quot;*.google.co.jp&quot;,
+            &quot;*.google.co.uk&quot;,
+            &quot;*.google.com.ar&quot;,
+            &quot;*.google.com.au&quot;,
+            &quot;*.google.com.br&quot;,
+            &quot;*.google.com.co&quot;,
+            &quot;*.google.com.mx&quot;,
+            &quot;*.google.com.tr&quot;,
+            &quot;*.google.com.vn&quot;,
+            &quot;*.google.de&quot;,
+            &quot;*.google.es&quot;,
+            &quot;*.google.fr&quot;,
+            &quot;*.google.hu&quot;,
+            &quot;*.google.it&quot;,
+            &quot;*.google.nl&quot;,
+            &quot;*.google.pl&quot;,
+            &quot;*.google.pt&quot;,
+            &quot;*.googleapis.cn&quot;,
+            &quot;*.gstatic.cn&quot;,
+            &quot;*.gstatic-cn.com&quot;,
+            &quot;googlecnapps.cn&quot;,
+            &quot;*.googlecnapps.cn&quot;,
+            &quot;googleapps-cn.com&quot;,
+            &quot;*.googleapps-cn.com&quot;,
+            &quot;gkecnapps.cn&quot;,
+            &quot;*.gkecnapps.cn&quot;,
+            &quot;googledownloads.cn&quot;,
+            &quot;*.googledownloads.cn&quot;,
+            &quot;recaptcha.net.cn&quot;,
+            &quot;*.recaptcha.net.cn&quot;,
+            &quot;recaptcha-cn.net&quot;,
+            &quot;*.recaptcha-cn.net&quot;,
+            &quot;widevine.cn&quot;,
+            &quot;*.widevine.cn&quot;,
+            &quot;ampproject.org.cn&quot;,
+            &quot;*.ampproject.org.cn&quot;,
+            &quot;ampproject.net.cn&quot;,
+            &quot;*.ampproject.net.cn&quot;,
+            &quot;google-analytics-cn.com&quot;,
+            &quot;*.google-analytics-cn.com&quot;,
+            &quot;googleadservices-cn.com&quot;,
+            &quot;*.googleadservices-cn.com&quot;,
+            &quot;googlevads-cn.com&quot;,
+            &quot;*.googlevads-cn.com&quot;,
+            &quot;googleapis-cn.com&quot;,
+            &quot;*.googleapis-cn.com&quot;,
+            &quot;googleoptimize-cn.com&quot;,
+            &quot;*.googleoptimize-cn.com&quot;,
+            &quot;doubleclick-cn.net&quot;,
+            &quot;*.doubleclick-cn.net&quot;,
+            &quot;*.fls.doubleclick-cn.net&quot;,
+            &quot;*.g.doubleclick-cn.net&quot;,
+            &quot;doubleclick.cn&quot;,
+            &quot;*.doubleclick.cn&quot;,
+            &quot;*.fls.doubleclick.cn&quot;,
+            &quot;*.g.doubleclick.cn&quot;,
+            &quot;dartsearch-cn.net&quot;,
+            &quot;*.dartsearch-cn.net&quot;,
+            &quot;googletraveladservices-cn.com&quot;,
+            &quot;*.googletraveladservices-cn.com&quot;,
+            &quot;googletagservices-cn.com&quot;,
+            &quot;*.googletagservices-cn.com&quot;,
+            &quot;googletagmanager-cn.com&quot;,
+            &quot;*.googletagmanager-cn.com&quot;,
+            &quot;googlesyndication-cn.com&quot;,
+            &quot;*.googlesyndication-cn.com&quot;,
+            &quot;*.safeframe.googlesyndication-cn.com&quot;,
+            &quot;app-measurement-cn.com&quot;,
+            &quot;*.app-measurement-cn.com&quot;,
+            &quot;gvt1-cn.com&quot;,
+            &quot;*.gvt1-cn.com&quot;,
+            &quot;gvt2-cn.com&quot;,
+            &quot;*.gvt2-cn.com&quot;,
+            &quot;2mdn-cn.net&quot;,
+            &quot;*.2mdn-cn.net&quot;,
+            &quot;googleflights-cn.net&quot;,
+            &quot;*.googleflights-cn.net&quot;,
+            &quot;admob-cn.com&quot;,
+            &quot;*.admob-cn.com&quot;,
+            &quot;*.gemini.cloud.google.com&quot;,
+            &quot;googlesandbox-cn.com&quot;,
+            &quot;*.googlesandbox-cn.com&quot;,
+            &quot;*.safenup.googlesandbox-cn.com&quot;,
+            &quot;*.gstatic.com&quot;,
+            &quot;*.metric.gstatic.com&quot;,
+            &quot;*.gvt1.com&quot;,
+            &quot;*.gcpcdn.gvt1.com&quot;,
+            &quot;*.gvt2.com&quot;,
+            &quot;*.gcp.gvt2.com&quot;,
+            &quot;*.url.google.com&quot;,
+            &quot;*.youtube-nocookie.com&quot;,
+            &quot;*.ytimg.com&quot;,
+            &quot;ai.android&quot;,
+            &quot;android.com&quot;,
+            &quot;*.android.com&quot;,
+            &quot;*.flash.android.com&quot;,
+            &quot;g.cn&quot;,
+            &quot;*.g.cn&quot;,
+            &quot;g.co&quot;,
+            &quot;*.g.co&quot;,
+            &quot;goo.gl&quot;,
+            &quot;www.goo.gl&quot;,
+            &quot;google-analytics.com&quot;,
+            &quot;*.google-analytics.com&quot;,
+            &quot;google.com&quot;,
+            &quot;googlecommerce.com&quot;,
+            &quot;*.googlecommerce.com&quot;,
+            &quot;ggpht.cn&quot;,
+            &quot;*.ggpht.cn&quot;,
+            &quot;urchin.com&quot;,
+            &quot;*.urchin.com&quot;,
+            &quot;youtu.be&quot;,
+            &quot;youtube.com&quot;,
+            &quot;*.youtube.com&quot;,
+            &quot;music.youtube.com&quot;,
+            &quot;*.music.youtube.com&quot;,
+            &quot;youtubeeducation.com&quot;,
+            &quot;*.youtubeeducation.com&quot;,
+            &quot;youtubekids.com&quot;,
+            &quot;*.youtubekids.com&quot;,
+            &quot;yt.be&quot;,
+            &quot;*.yt.be&quot;,
+            &quot;android.clients.google.com&quot;,
+            &quot;*.android.google.cn&quot;,
+            &quot;*.chrome.google.cn&quot;,
+            &quot;*.developers.google.cn&quot;,
+            &quot;*.aistudio.google.com&quot;
+          ],
+          &quot;isSelfSigned&quot;: false,
+          &quot;isCA&quot;: false
+        },
+        &quot;quantumReadiness&quot;: &quot;quantum-vulnerable&quot;
+      }
+    },
+    {
+      &quot;type&quot;: &quot;cryptographic-asset&quot;,
+      &quot;name&quot;: &quot;google.com-tls-connection&quot;,
+      &quot;description&quot;: &quot;TLS connection to google.com:443&quot;,
+      &quot;cryptoProperties&quot;: {
+        &quot;assetType&quot;: &quot;protocol&quot;,
+        &quot;protocolProperties&quot;: {
+          &quot;tlsVersion&quot;: &quot;TLSv1.3&quot;,
+          &quot;cipherSuite&quot;: &quot;TLS_AES_256_GCM_SHA384&quot;,
+          &quot;keyExchange&quot;: &quot;ECDHE (TLS 1.3 default)&quot;
+        },
+        &quot;quantumReadiness&quot;: &quot;quantum-vulnerable&quot;
+      }
+    },
+    {
+      &quot;type&quot;: &quot;cryptographic-asset&quot;,
+      &quot;name&quot;: &quot;digicert.com-leaf&quot;,
+      &quot;description&quot;: &quot;CN=www.digicert.com,O=DigiCert\\, Inc.,L=Lehi,ST=Utah,C=US,2.5.4.5=5299537-0142,2.5.4.15=Private Organization,1.3.6.1.4.1.311.60.2.1.2=Utah,1.3.6.1.4.1.311.60.2.1.3=US&quot;,
+      &quot;cryptoProperties&quot;: {
+        &quot;assetType&quot;: &quot;certificate&quot;,
+        &quot;algorithmProperties&quot;: {
+          &quot;algorithm&quot;: &quot;RSA&quot;,
+          &quot;keySize&quot;: 2048,
+          &quot;signatureAlgorithm&quot;: &quot;SHA256WithRSAEncryption&quot;,
+          &quot;signatureAlgorithmOID&quot;: &quot;1.2.840.113549.1.1.11&quot;
+        },
+        &quot;certificateProperties&quot;: {
+          &quot;subjectName&quot;: &quot;CN=www.digicert.com,O=DigiCert\\, Inc.,L=Lehi,ST=Utah,C=US,2.5.4.5=5299537-0142,2.5.4.15=Private Organization,1.3.6.1.4.1.311.60.2.1.2=Utah,1.3.6.1.4.1.311.60.2.1.3=US&quot;,
+          &quot;issuerName&quot;: &quot;CN=DigiCert EV RSA CA G2,O=DigiCert Inc,C=US&quot;,
+          &quot;notBefore&quot;: &quot;2026-03-08T00:00:00+00:00&quot;,
+          &quot;notAfter&quot;: &quot;2026-04-23T23:59:59+00:00&quot;,
+          &quot;serialNumber&quot;: &quot;94c14e8d1b9469a2e77fd1db464b9d0&quot;,
+          &quot;subjectAlternativeNames&quot;: [
+            &quot;www.digicert.com&quot;,
+            &quot;digicert.com&quot;
+          ],
+          &quot;isSelfSigned&quot;: false,
+          &quot;isCA&quot;: false
+        },
+        &quot;quantumReadiness&quot;: &quot;quantum-vulnerable&quot;
+      }
+    },
+    {
+      &quot;type&quot;: &quot;cryptographic-asset&quot;,
+      &quot;name&quot;: &quot;digicert.com-tls-connection&quot;,
+      &quot;description&quot;: &quot;TLS connection to digicert.com:443&quot;,
+      &quot;cryptoProperties&quot;: {
+        &quot;assetType&quot;: &quot;protocol&quot;,
+        &quot;protocolProperties&quot;: {
+          &quot;tlsVersion&quot;: &quot;TLSv1.3&quot;,
+          &quot;cipherSuite&quot;: &quot;TLS_AES_128_GCM_SHA256&quot;,
+          &quot;keyExchange&quot;: &quot;ECDHE (TLS 1.3 default)&quot;
+        },
+        &quot;quantumReadiness&quot;: &quot;quantum-vulnerable&quot;
+      }
+    },
+    {
+      &quot;type&quot;: &quot;cryptographic-asset&quot;,
+      &quot;name&quot;: &quot;github.com-leaf&quot;,
+      &quot;description&quot;: &quot;CN=github.com&quot;,
+      &quot;cryptoProperties&quot;: {
+        &quot;assetType&quot;: &quot;certificate&quot;,
+        &quot;algorithmProperties&quot;: {
+          &quot;algorithm&quot;: &quot;EC-secp256r1&quot;,
+          &quot;keySize&quot;: 256,
+          &quot;signatureAlgorithm&quot;: &quot;ECDSA-with-SHA256&quot;,
+          &quot;signatureAlgorithmOID&quot;: &quot;1.2.840.10045.4.3.2&quot;
+        },
+        &quot;certificateProperties&quot;: {
+          &quot;subjectName&quot;: &quot;CN=github.com&quot;,
+          &quot;issuerName&quot;: &quot;CN=Sectigo Public Server Authentication CA DV E36,O=Sectigo Limited,C=GB&quot;,
+          &quot;notBefore&quot;: &quot;2026-03-06T00:00:00+00:00&quot;,
+          &quot;notAfter&quot;: &quot;2026-06-03T23:59:59+00:00&quot;,
+          &quot;serialNumber&quot;: &quot;1dc289c1eadafb04e9d1cf53d5d72253&quot;,
+          &quot;subjectAlternativeNames&quot;: [
+            &quot;github.com&quot;,
+            &quot;www.github.com&quot;
+          ],
+          &quot;isSelfSigned&quot;: false,
+          &quot;isCA&quot;: false
+        },
+        &quot;quantumReadiness&quot;: &quot;quantum-vulnerable&quot;
+      }
+    },
+    {
+      &quot;type&quot;: &quot;cryptographic-asset&quot;,
+      &quot;name&quot;: &quot;github.com-tls-connection&quot;,
+      &quot;description&quot;: &quot;TLS connection to github.com:443&quot;,
+      &quot;cryptoProperties&quot;: {
+        &quot;assetType&quot;: &quot;protocol&quot;,
+        &quot;protocolProperties&quot;: {
+          &quot;tlsVersion&quot;: &quot;TLSv1.3&quot;,
+          &quot;cipherSuite&quot;: &quot;TLS_AES_128_GCM_SHA256&quot;,
+          &quot;keyExchange&quot;: &quot;ECDHE (TLS 1.3 default)&quot;
+        },
+        &quot;quantumReadiness&quot;: &quot;quantum-vulnerable&quot;
+      }
+    },
+    {
+      &quot;type&quot;: &quot;cryptographic-asset&quot;,
+      &quot;name&quot;: &quot;expired.badssl.com-leaf&quot;,
+      &quot;description&quot;: &quot;CN=*.badssl.com,OU=PositiveSSL Wildcard,OU=Domain Control Validated&quot;,
+      &quot;cryptoProperties&quot;: {
+        &quot;assetType&quot;: &quot;certificate&quot;,
+        &quot;algorithmProperties&quot;: {
+          &quot;algorithm&quot;: &quot;RSA&quot;,
+          &quot;keySize&quot;: 2048,
+          &quot;signatureAlgorithm&quot;: &quot;SHA256WithRSAEncryption&quot;,
+          &quot;signatureAlgorithmOID&quot;: &quot;1.2.840.113549.1.1.11&quot;
+        },
+        &quot;certificateProperties&quot;: {
+          &quot;subjectName&quot;: &quot;CN=*.badssl.com,OU=PositiveSSL Wildcard,OU=Domain Control Validated&quot;,
+          &quot;issuerName&quot;: &quot;CN=COMODO RSA Domain Validation Secure Server CA,O=COMODO CA Limited,L=Salford,ST=Greater Manchester,C=GB&quot;,
+          &quot;notBefore&quot;: &quot;2015-04-09T00:00:00+00:00&quot;,
+          &quot;notAfter&quot;: &quot;2015-04-12T23:59:59+00:00&quot;,
+          &quot;serialNumber&quot;: &quot;4ae79549fa9abe3f100f17a478e16909&quot;,
+          &quot;subjectAlternativeNames&quot;: [
+            &quot;*.badssl.com&quot;,
+            &quot;badssl.com&quot;
+          ],
+          &quot;isSelfSigned&quot;: false,
+          &quot;isCA&quot;: false
+        },
+        &quot;quantumReadiness&quot;: &quot;quantum-vulnerable&quot;
+      }
+    },
+    {
+      &quot;type&quot;: &quot;cryptographic-asset&quot;,
+      &quot;name&quot;: &quot;expired.badssl.com-tls-connection&quot;,
+      &quot;description&quot;: &quot;TLS connection to expired.badssl.com:443&quot;,
+      &quot;cryptoProperties&quot;: {
+        &quot;assetType&quot;: &quot;protocol&quot;,
+        &quot;protocolProperties&quot;: {
+          &quot;tlsVersion&quot;: &quot;TLSv1.2&quot;,
+          &quot;cipherSuite&quot;: &quot;ECDHE-RSA-AES128-GCM-SHA256&quot;,
+          &quot;keyExchange&quot;: &quot;ECDHE&quot;
+        },
+        &quot;quantumReadiness&quot;: &quot;quantum-vulnerable&quot;
+      }
+    },
+    {
+      &quot;type&quot;: &quot;cryptographic-asset&quot;,
+      &quot;name&quot;: &quot;self-signed.badssl.com-leaf&quot;,
+      &quot;description&quot;: &quot;CN=*.badssl.com,O=BadSSL,L=San Francisco,ST=California,C=US&quot;,
+      &quot;cryptoProperties&quot;: {
+        &quot;assetType&quot;: &quot;certificate&quot;,
+        &quot;algorithmProperties&quot;: {
+          &quot;algorithm&quot;: &quot;RSA&quot;,
+          &quot;keySize&quot;: 2048,
+          &quot;signatureAlgorithm&quot;: &quot;SHA256WithRSAEncryption&quot;,
+          &quot;signatureAlgorithmOID&quot;: &quot;1.2.840.113549.1.1.11&quot;
+        },
+        &quot;certificateProperties&quot;: {
+          &quot;subjectName&quot;: &quot;CN=*.badssl.com,O=BadSSL,L=San Francisco,ST=California,C=US&quot;,
+          &quot;issuerName&quot;: &quot;CN=*.badssl.com,O=BadSSL,L=San Francisco,ST=California,C=US&quot;,
+          &quot;notBefore&quot;: &quot;2026-03-10T21:01:30+00:00&quot;,
+          &quot;notAfter&quot;: &quot;2028-03-09T21:01:30+00:00&quot;,
+          &quot;serialNumber&quot;: &quot;cf4a9fd06989169c&quot;,
+          &quot;subjectAlternativeNames&quot;: [
+            &quot;*.badssl.com&quot;,
+            &quot;badssl.com&quot;
+          ],
+          &quot;isSelfSigned&quot;: true,
+          &quot;isCA&quot;: false
+        },
+        &quot;quantumReadiness&quot;: &quot;quantum-vulnerable&quot;
+      }
+    },
+    {
+      &quot;type&quot;: &quot;cryptographic-asset&quot;,
+      &quot;name&quot;: &quot;self-signed.badssl.com-tls-connection&quot;,
+      &quot;description&quot;: &quot;TLS connection to self-signed.badssl.com:443&quot;,
+      &quot;cryptoProperties&quot;: {
+        &quot;assetType&quot;: &quot;protocol&quot;,
+        &quot;protocolProperties&quot;: {
+          &quot;tlsVersion&quot;: &quot;TLSv1.2&quot;,
+          &quot;cipherSuite&quot;: &quot;ECDHE-RSA-AES128-GCM-SHA256&quot;,
+          &quot;keyExchange&quot;: &quot;ECDHE&quot;
+        },
+        &quot;quantumReadiness&quot;: &quot;quantum-vulnerable&quot;
+      }
+    },
+    {
+      &quot;type&quot;: &quot;cryptographic-asset&quot;,
+      &quot;name&quot;: &quot;revoked.badssl.com-leaf&quot;,
+      &quot;description&quot;: &quot;CN=revoked.badssl.com&quot;,
+      &quot;cryptoProperties&quot;: {
+        &quot;assetType&quot;: &quot;certificate&quot;,
+        &quot;algorithmProperties&quot;: {
+          &quot;algorithm&quot;: &quot;EC-secp256r1&quot;,
+          &quot;keySize&quot;: 256,
+          &quot;signatureAlgorithm&quot;: &quot;ECDSA-with-SHA384&quot;,
+          &quot;signatureAlgorithmOID&quot;: &quot;1.2.840.10045.4.3.3&quot;
+        },
+        &quot;certificateProperties&quot;: {
+          &quot;subjectName&quot;: &quot;CN=revoked.badssl.com&quot;,
+          &quot;issuerName&quot;: &quot;CN=E8,O=Let&#x27;s Encrypt,C=US&quot;,
+          &quot;notBefore&quot;: &quot;2026-03-10T20:02:52+00:00&quot;,
+          &quot;notAfter&quot;: &quot;2026-06-08T20:02:51+00:00&quot;,
+          &quot;serialNumber&quot;: &quot;65b2746e201864c96d36c0f98c886fdb2f5&quot;,
+          &quot;subjectAlternativeNames&quot;: [
+            &quot;revoked.badssl.com&quot;
+          ],
+          &quot;isSelfSigned&quot;: false,
+          &quot;isCA&quot;: false
+        },
+        &quot;quantumReadiness&quot;: &quot;quantum-vulnerable&quot;
+      }
+    },
+    {
+      &quot;type&quot;: &quot;cryptographic-asset&quot;,
+      &quot;name&quot;: &quot;revoked.badssl.com-tls-connection&quot;,
+      &quot;description&quot;: &quot;TLS connection to revoked.badssl.com:443&quot;,
+      &quot;cryptoProperties&quot;: {
+        &quot;assetType&quot;: &quot;protocol&quot;,
+        &quot;protocolProperties&quot;: {
+          &quot;tlsVersion&quot;: &quot;TLSv1.2&quot;,
+          &quot;cipherSuite&quot;: &quot;ECDHE-ECDSA-AES128-GCM-SHA256&quot;,
+          &quot;keyExchange&quot;: &quot;ECDHE&quot;
+        },
+        &quot;quantumReadiness&quot;: &quot;quantum-vulnerable&quot;
+      }
+    }
+  ]
+}</code></pre></details>
+</div></div>
+<div class="tab-content" id="tab-hosts" role="tabpanel">
+<div class="section"><h2>Host Details</h2>
+<div class="filter-bar"><input type="text" id="hosts-filter" placeholder="Filter hosts..." class="filter-input" aria-label="Filter host details"></div>
+<details class="host-detail-block" data-host="10.1.10.100:6443"><summary class="host-summary"><span class="mono">10.1.10.100:6443</span> <span class="pill" style="color:#d29922;border:1px solid #d29922">WARNING</span> <span class="mono" style="color:#f85149;margin-left:8px">PQC: 2/10 F</span> <span style="color:#8b949e;font-size:0.82rem;margin-left:8px">TLSv1.3 &middot; TLS_AES_128_GCM_SHA256</span></summary><div class="host-details">
+<h4 style="margin-bottom:8px">Audit Findings</h4>
+<table style="font-size:0.82rem"><thead><tr><th style="width:30px"></th><th>Check</th><th>Component</th><th>Finding</th><th>Remediation</th></tr></thead><tbody>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">expiry</td><td>CN=kube-apiserver</td><td>Valid for 284 more days.</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">key_strength</td><td>CN=kube-apiserver</td><td>EC-secp256r1: good key type.</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">signature</td><td>CN=kube-apiserver</td><td>Signature: ECDSA-with-SHA256.</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">san</td><td>CN=kube-apiserver</td><td>SAN present: kubernetes, kubernetes.default, kubernetes.default.svc, kubernetes.default.svc.cluster.local, localhost (+5 more)</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-warning"><td class="icon-cell"><span style="color:#d29922">&#x26A0;</span></td><td class="mono">chain</td><td>Chain</td><td>Only leaf certificate received — intermediates may be missing.</td><td style="color:#8b949e">Configure the server to send the full certificate chain.</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">tls_version</td><td>TLS</td><td>Protocol: TLSv1.3 (optimal).</td><td style="color:#8b949e">&mdash;</td></tr>
+</tbody></table>
+<h4 style="margin:16px 0 8px">Certificate Chain</h4>
+<h5 style="color:#58a6ff;font-size:0.88rem;margin:12px 0 4px">Leaf</h5>
+<dl class="cert-grid">
+<dt>Subject</dt><dd class="mono">CN=kube-apiserver</dd>
+<dt>Issuer</dt><dd class="mono">CN=rke2-server-ca@1766772046</dd>
+<dt>Not Before</dt><dd>2025-12-26T18:00:46+00:00</dd>
+<dt>Not After</dt><dd>2026-12-26T18:00:46+00:00</dd>
+<dt>Key</dt><dd>EC-secp256r1 (256 bits)</dd>
+<dt>Signature</dt><dd class="mono">ECDSA-with-SHA256</dd>
+<dt>Serial</dt><dd class="mono">51d4c0fa753d8984</dd>
+<dt>SAN</dt><dd>kubernetes, kubernetes.default, kubernetes.default.svc, kubernetes.default.svc.cluster.local, localhost, pca.sdpnow.local, 127.0.0.1, ::1, 10.1.10.100, 10.43.0.1</dd>
+</dl>
+<h4 style="margin:16px 0 8px">TLS Connection</h4>
+<dl class="cert-grid">
+<dt>Protocol</dt><dd>TLSv1.3</dd>
+<dt>Cipher Suite</dt><dd class="mono">TLS_AES_128_GCM_SHA256</dd>
+<dt>Key Exchange</dt><dd>ECDHE (TLS 1.3 default)</dd>
+<dt>Peer Address</dt><dd class="mono">10.1.10.100</dd>
+</dl>
+</div></details>
+<details class="host-detail-block" data-host="10.1.10.10:443"><summary class="host-summary host-error"><span class="mono">10.1.10.10:443</span> <span class="pill" style="color:#f85149;border:1px solid #f85149">ERROR</span></summary><div class="host-details"><p style="color:#f85149">Connection timed out after 15.0s</p></div></details>
+<details class="host-detail-block" data-host="10.1.10.245:8006"><summary class="host-summary"><span class="mono">10.1.10.245:8006</span> <span class="pill" style="color:#d29922;border:1px solid #d29922">WARNING</span> <span class="mono" style="color:#f85149;margin-left:8px">PQC: 2/10 F</span> <span style="color:#8b949e;font-size:0.82rem;margin-left:8px">TLSv1.3 &middot; TLS_AES_256_GCM_SHA384</span></summary><div class="host-details">
+<h4 style="margin-bottom:8px">Audit Findings</h4>
+<table style="font-size:0.82rem"><thead><tr><th style="width:30px"></th><th>Check</th><th>Component</th><th>Finding</th><th>Remediation</th></tr></thead><tbody>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">expiry</td><td>CN=pve-master.lan</td><td>Valid for 601 more days.</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-warning"><td class="icon-cell"><span style="color:#d29922">&#x26A0;</span></td><td class="mono">key_strength</td><td>CN=pve-master.lan</td><td>RSA-2048: meets minimum but 3072+ recommended.</td><td style="color:#8b949e">Consider RSA-3072 or ECDSA P-256 for better security margin.</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">signature</td><td>CN=pve-master.lan</td><td>Signature: SHA256WithRSAEncryption.</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">san</td><td>CN=pve-master.lan</td><td>SAN present: localhost, pve-master, pve-master.lan, 127.0.0.1, ::1 (+1 more)</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-warning"><td class="icon-cell"><span style="color:#d29922">&#x26A0;</span></td><td class="mono">chain</td><td>Chain</td><td>Only leaf certificate received — intermediates may be missing.</td><td style="color:#8b949e">Configure the server to send the full certificate chain.</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">tls_version</td><td>TLS</td><td>Protocol: TLSv1.3 (optimal).</td><td style="color:#8b949e">&mdash;</td></tr>
+</tbody></table>
+<h4 style="margin:16px 0 8px">Certificate Chain</h4>
+<h5 style="color:#58a6ff;font-size:0.88rem;margin:12px 0 4px">Leaf</h5>
+<dl class="cert-grid">
+<dt>Subject</dt><dd class="mono">CN=pve-master.lan,O=Proxmox Virtual Environment,OU=PVE Cluster Node</dd>
+<dt>Issuer</dt><dd class="mono">O=PVE Cluster Manager CA,OU=a59ca087-02a3-4806-9835-325487e16960,CN=Proxmox Virtual Environment</dd>
+<dt>Not Before</dt><dd>2025-11-08T07:04:18+00:00</dd>
+<dt>Not After</dt><dd>2027-11-08T07:04:18+00:00</dd>
+<dt>Key</dt><dd>RSA (2048 bits)</dd>
+<dt>Signature</dt><dd class="mono">SHA256WithRSAEncryption</dd>
+<dt>Serial</dt><dd class="mono">1</dd>
+<dt>SAN</dt><dd>localhost, pve-master, pve-master.lan, 127.0.0.1, ::1, 10.1.10.245</dd>
+</dl>
+<h4 style="margin:16px 0 8px">TLS Connection</h4>
+<dl class="cert-grid">
+<dt>Protocol</dt><dd>TLSv1.3</dd>
+<dt>Cipher Suite</dt><dd class="mono">TLS_AES_256_GCM_SHA384</dd>
+<dt>Key Exchange</dt><dd>ECDHE (TLS 1.3 default)</dd>
+<dt>Peer Address</dt><dd class="mono">10.1.10.245</dd>
+</dl>
+</div></details>
+<details class="host-detail-block" data-host="10.1.10.3:8006"><summary class="host-summary"><span class="mono">10.1.10.3:8006</span> <span class="pill" style="color:#d29922;border:1px solid #d29922">WARNING</span> <span class="mono" style="color:#f85149;margin-left:8px">PQC: 2/10 F</span> <span style="color:#8b949e;font-size:0.82rem;margin-left:8px">TLSv1.3 &middot; TLS_AES_256_GCM_SHA384</span></summary><div class="host-details">
+<h4 style="margin-bottom:8px">Audit Findings</h4>
+<table style="font-size:0.82rem"><thead><tr><th style="width:30px"></th><th>Check</th><th>Component</th><th>Finding</th><th>Remediation</th></tr></thead><tbody>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">expiry</td><td>CN=mini-pve.lab</td><td>Valid for 436 more days.</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-warning"><td class="icon-cell"><span style="color:#d29922">&#x26A0;</span></td><td class="mono">key_strength</td><td>CN=mini-pve.lab</td><td>RSA-2048: meets minimum but 3072+ recommended.</td><td style="color:#8b949e">Consider RSA-3072 or ECDSA P-256 for better security margin.</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">signature</td><td>CN=mini-pve.lab</td><td>Signature: SHA256WithRSAEncryption.</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">san</td><td>CN=mini-pve.lab</td><td>SAN present: localhost, mini-pve, mini-pve.lab, 127.0.0.1, ::1 (+1 more)</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-warning"><td class="icon-cell"><span style="color:#d29922">&#x26A0;</span></td><td class="mono">chain</td><td>Chain</td><td>Only leaf certificate received — intermediates may be missing.</td><td style="color:#8b949e">Configure the server to send the full certificate chain.</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">tls_version</td><td>TLS</td><td>Protocol: TLSv1.3 (optimal).</td><td style="color:#8b949e">&mdash;</td></tr>
+</tbody></table>
+<h4 style="margin:16px 0 8px">Certificate Chain</h4>
+<h5 style="color:#58a6ff;font-size:0.88rem;margin:12px 0 4px">Leaf</h5>
+<dl class="cert-grid">
+<dt>Subject</dt><dd class="mono">CN=mini-pve.lab,O=Proxmox Virtual Environment,OU=PVE Cluster Node</dd>
+<dt>Issuer</dt><dd class="mono">O=PVE Cluster Manager CA,OU=2e8dbe9e-aefd-4534-a0bc-dc5e220ae1fb,CN=Proxmox Virtual Environment</dd>
+<dt>Not Before</dt><dd>2025-05-27T13:08:33+00:00</dd>
+<dt>Not After</dt><dd>2027-05-27T13:08:33+00:00</dd>
+<dt>Key</dt><dd>RSA (2048 bits)</dd>
+<dt>Signature</dt><dd class="mono">SHA256WithRSAEncryption</dd>
+<dt>Serial</dt><dd class="mono">1</dd>
+<dt>SAN</dt><dd>localhost, mini-pve, mini-pve.lab, 127.0.0.1, ::1, 10.1.10.86</dd>
+</dl>
+<h4 style="margin:16px 0 8px">TLS Connection</h4>
+<dl class="cert-grid">
+<dt>Protocol</dt><dd>TLSv1.3</dd>
+<dt>Cipher Suite</dt><dd class="mono">TLS_AES_256_GCM_SHA384</dd>
+<dt>Key Exchange</dt><dd>ECDHE (TLS 1.3 default)</dd>
+<dt>Peer Address</dt><dd class="mono">10.1.10.3</dd>
+</dl>
+</div></details>
+<details class="host-detail-block" data-host="10.1.10.5:8006"><summary class="host-summary"><span class="mono">10.1.10.5:8006</span> <span class="pill" style="color:#d29922;border:1px solid #d29922">WARNING</span> <span class="mono" style="color:#f85149;margin-left:8px">PQC: 2/10 F</span> <span style="color:#8b949e;font-size:0.82rem;margin-left:8px">TLSv1.3 &middot; TLS_AES_256_GCM_SHA384</span></summary><div class="host-details">
+<h4 style="margin-bottom:8px">Audit Findings</h4>
+<table style="font-size:0.82rem"><thead><tr><th style="width:30px"></th><th>Check</th><th>Component</th><th>Finding</th><th>Remediation</th></tr></thead><tbody>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">expiry</td><td>CN=agents-pve.local</td><td>Valid for 693 more days.</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-warning"><td class="icon-cell"><span style="color:#d29922">&#x26A0;</span></td><td class="mono">key_strength</td><td>CN=agents-pve.local</td><td>RSA-2048: meets minimum but 3072+ recommended.</td><td style="color:#8b949e">Consider RSA-3072 or ECDSA P-256 for better security margin.</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">signature</td><td>CN=agents-pve.local</td><td>Signature: SHA256WithRSAEncryption.</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">san</td><td>CN=agents-pve.local</td><td>SAN present: localhost, agents-pve, agents-pve.local, 127.0.0.1, ::1 (+1 more)</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-warning"><td class="icon-cell"><span style="color:#d29922">&#x26A0;</span></td><td class="mono">chain</td><td>Chain</td><td>Only leaf certificate received — intermediates may be missing.</td><td style="color:#8b949e">Configure the server to send the full certificate chain.</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">tls_version</td><td>TLS</td><td>Protocol: TLSv1.3 (optimal).</td><td style="color:#8b949e">&mdash;</td></tr>
+</tbody></table>
+<h4 style="margin:16px 0 8px">Certificate Chain</h4>
+<h5 style="color:#58a6ff;font-size:0.88rem;margin:12px 0 4px">Leaf</h5>
+<dl class="cert-grid">
+<dt>Subject</dt><dd class="mono">CN=agents-pve.local,O=Proxmox Virtual Environment,OU=PVE Cluster Node</dd>
+<dt>Issuer</dt><dd class="mono">O=PVE Cluster Manager CA,OU=6b8c52e8-fd8e-48f0-acda-dfbc437feda0,CN=Proxmox Virtual Environment</dd>
+<dt>Not Before</dt><dd>2026-02-08T16:52:47+00:00</dd>
+<dt>Not After</dt><dd>2028-02-08T16:52:47+00:00</dd>
+<dt>Key</dt><dd>RSA (2048 bits)</dd>
+<dt>Signature</dt><dd class="mono">SHA256WithRSAEncryption</dd>
+<dt>Serial</dt><dd class="mono">3</dd>
+<dt>SAN</dt><dd>localhost, agents-pve, agents-pve.local, 127.0.0.1, ::1, 10.1.10.5</dd>
+</dl>
+<h4 style="margin:16px 0 8px">TLS Connection</h4>
+<dl class="cert-grid">
+<dt>Protocol</dt><dd>TLSv1.3</dd>
+<dt>Cipher Suite</dt><dd class="mono">TLS_AES_256_GCM_SHA384</dd>
+<dt>Key Exchange</dt><dd>ECDHE (TLS 1.3 default)</dd>
+<dt>Peer Address</dt><dd class="mono">10.1.10.5</dd>
+</dl>
+</div></details>
+<details class="host-detail-block" data-host="10.1.10.250:443"><summary class="host-summary"><span class="mono">10.1.10.250:443</span> <span class="pill" style="color:#d29922;border:1px solid #d29922">WARNING</span> <span class="mono" style="color:#f85149;margin-left:8px">PQC: 2/10 F</span> <span style="color:#8b949e;font-size:0.82rem;margin-left:8px">TLSv1.3 &middot; TLS_AES_256_GCM_SHA384</span></summary><div class="host-details">
+<h4 style="margin-bottom:8px">Audit Findings</h4>
+<table style="font-size:0.82rem"><thead><tr><th style="width:30px"></th><th>Check</th><th>Component</th><th>Finding</th><th>Remediation</th></tr></thead><tbody>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">expiry</td><td>CN=pi.hole</td><td>Valid for 10588 more days.</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">key_strength</td><td>CN=pi.hole</td><td>EC-secp384r1: good key type.</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">signature</td><td>CN=pi.hole</td><td>Signature: ECDSA-with-SHA256.</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">san</td><td>CN=pi.hole</td><td>SAN present: pi.hole</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-warning"><td class="icon-cell"><span style="color:#d29922">&#x26A0;</span></td><td class="mono">chain</td><td>Chain</td><td>Only leaf certificate received — intermediates may be missing.</td><td style="color:#8b949e">Configure the server to send the full certificate chain.</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">tls_version</td><td>TLS</td><td>Protocol: TLSv1.3 (optimal).</td><td style="color:#8b949e">&mdash;</td></tr>
+</tbody></table>
+<h4 style="margin:16px 0 8px">Certificate Chain</h4>
+<h5 style="color:#58a6ff;font-size:0.88rem;margin:12px 0 4px">Leaf</h5>
+<dl class="cert-grid">
+<dt>Subject</dt><dd class="mono">CN=pi.hole</dd>
+<dt>Issuer</dt><dd class="mono">C=DE,O=Pi-hole,CN=pi.hole</dd>
+<dt>Not Before</dt><dd>2025-03-12T22:56:53+00:00</dd>
+<dt>Not After</dt><dd>2055-03-12T22:56:53+00:00</dd>
+<dt>Key</dt><dd>EC-secp384r1 (384 bits)</dd>
+<dt>Signature</dt><dd class="mono">ECDSA-with-SHA256</dd>
+<dt>Serial</dt><dd class="mono">363033323331393833323235323130</dd>
+<dt>SAN</dt><dd>pi.hole</dd>
+</dl>
+<h4 style="margin:16px 0 8px">TLS Connection</h4>
+<dl class="cert-grid">
+<dt>Protocol</dt><dd>TLSv1.3</dd>
+<dt>Cipher Suite</dt><dd class="mono">TLS_AES_256_GCM_SHA384</dd>
+<dt>Key Exchange</dt><dd>ECDHE (TLS 1.3 default)</dd>
+<dt>Peer Address</dt><dd class="mono">10.1.10.250</dd>
+</dl>
+</div></details>
+<details class="host-detail-block" data-host="google.com:443"><summary class="host-summary"><span class="mono">google.com:443</span> <span class="pill" style="color:#d29922;border:1px solid #d29922">WARNING</span> <span class="mono" style="color:#f85149;margin-left:8px">PQC: 2/10 F</span> <span style="color:#8b949e;font-size:0.82rem;margin-left:8px">TLSv1.3 &middot; TLS_AES_256_GCM_SHA384</span></summary><div class="host-details">
+<h4 style="margin-bottom:8px">Audit Findings</h4>
+<table style="font-size:0.82rem"><thead><tr><th style="width:30px"></th><th>Check</th><th>Component</th><th>Finding</th><th>Remediation</th></tr></thead><tbody>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">expiry</td><td>CN=*.google.com</td><td>Valid for 41 more days.</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">key_strength</td><td>CN=*.google.com</td><td>EC-secp256r1: good key type.</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">signature</td><td>CN=*.google.com</td><td>Signature: ECDSA-with-SHA256.</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-info"><td class="icon-cell"><span style="color:#58a6ff">&#x2139;</span></td><td class="mono">san</td><td>CN=*.google.com</td><td>Wildcard SAN(s): *.google.com, *.appengine.google.com, *.bdn.dev, *.origin-test.bdn.dev, *.cloud.google.com, *.crowdsource.google.com, *.datacompute.google.com, *.google.ca, *.google.cl, *.google.co.in, *.google.co.jp, *.google.co.uk, *.google.com.ar, *.google.com.au, *.google.com.br, *.google.com.co, *.google.com.mx, *.google.com.tr, *.google.com.vn, *.google.de, *.google.es, *.google.fr, *.google.hu, *.google.it, *.google.nl, *.google.pl, *.google.pt, *.googleapis.cn, *.gstatic.cn, *.gstatic-cn.com, *.googlecnapps.cn, *.googleapps-cn.com, *.gkecnapps.cn, *.googledownloads.cn, *.recaptcha.net.cn, *.recaptcha-cn.net, *.widevine.cn, *.ampproject.org.cn, *.ampproject.net.cn, *.google-analytics-cn.com, *.googleadservices-cn.com, *.googlevads-cn.com, *.googleapis-cn.com, *.googleoptimize-cn.com, *.doubleclick-cn.net, *.fls.doubleclick-cn.net, *.g.doubleclick-cn.net, *.doubleclick.cn, *.fls.doubleclick.cn, *.g.doubleclick.cn, *.dartsearch-cn.net, *.googletraveladservices-cn.com, *.googletagservices-cn.com, *.googletagmanager-cn.com, *.googlesyndication-cn.com, *.safeframe.googlesyndication-cn.com, *.app-measurement-cn.com, *.gvt1-cn.com, *.gvt2-cn.com, *.2mdn-cn.net, *.googleflights-cn.net, *.admob-cn.com, *.gemini.cloud.google.com, *.googlesandbox-cn.com, *.safenup.googlesandbox-cn.com, *.gstatic.com, *.metric.gstatic.com, *.gvt1.com, *.gcpcdn.gvt1.com, *.gvt2.com, *.gcp.gvt2.com, *.url.google.com, *.youtube-nocookie.com, *.ytimg.com, *.android.com, *.flash.android.com, *.g.cn, *.g.co, *.google-analytics.com, *.googlecommerce.com, *.ggpht.cn, *.urchin.com, *.youtube.com, *.music.youtube.com, *.youtubeeducation.com, *.youtubekids.com, *.yt.be, *.android.google.cn, *.chrome.google.cn, *.developers.google.cn, *.aistudio.google.com</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">san</td><td>CN=*.google.com</td><td>SAN present: *.google.com, *.appengine.google.com, *.bdn.dev, *.origin-test.bdn.dev, *.cloud.google.com (+132 more)</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-warning"><td class="icon-cell"><span style="color:#d29922">&#x26A0;</span></td><td class="mono">chain</td><td>Chain</td><td>Only leaf certificate received — intermediates may be missing.</td><td style="color:#8b949e">Configure the server to send the full certificate chain.</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">tls_version</td><td>TLS</td><td>Protocol: TLSv1.3 (optimal).</td><td style="color:#8b949e">&mdash;</td></tr>
+</tbody></table>
+<h4 style="margin:16px 0 8px">Certificate Chain</h4>
+<h5 style="color:#58a6ff;font-size:0.88rem;margin:12px 0 4px">Leaf</h5>
+<dl class="cert-grid">
+<dt>Subject</dt><dd class="mono">CN=*.google.com</dd>
+<dt>Issuer</dt><dd class="mono">CN=WE2,O=Google Trust Services,C=US</dd>
+<dt>Not Before</dt><dd>2026-02-02T08:36:42+00:00</dd>
+<dt>Not After</dt><dd>2026-04-27T08:36:41+00:00</dd>
+<dt>Key</dt><dd>EC-secp256r1 (256 bits)</dd>
+<dt>Signature</dt><dd class="mono">ECDSA-with-SHA256</dd>
+<dt>Serial</dt><dd class="mono">cb7c1a4879809b1f10bc72d8f4632f05</dd>
+<dt>SAN</dt><dd>*.google.com, *.appengine.google.com, *.bdn.dev, *.origin-test.bdn.dev, *.cloud.google.com, *.crowdsource.google.com, *.datacompute.google.com, *.google.ca, *.google.cl, *.google.co.in (+127 more)</dd>
+</dl>
+<h4 style="margin:16px 0 8px">TLS Connection</h4>
+<dl class="cert-grid">
+<dt>Protocol</dt><dd>TLSv1.3</dd>
+<dt>Cipher Suite</dt><dd class="mono">TLS_AES_256_GCM_SHA384</dd>
+<dt>Key Exchange</dt><dd>ECDHE (TLS 1.3 default)</dd>
+<dt>Peer Address</dt><dd class="mono">216.239.38.120</dd>
+</dl>
+</div></details>
+<details class="host-detail-block" data-host="digicert.com:443"><summary class="host-summary"><span class="mono">digicert.com:443</span> <span class="pill" style="color:#d29922;border:1px solid #d29922">WARNING</span> <span class="mono" style="color:#f85149;margin-left:8px">PQC: 2/10 F</span> <span style="color:#8b949e;font-size:0.82rem;margin-left:8px">TLSv1.3 &middot; TLS_AES_128_GCM_SHA256</span></summary><div class="host-details">
+<h4 style="margin-bottom:8px">Audit Findings</h4>
+<table style="font-size:0.82rem"><thead><tr><th style="width:30px"></th><th>Check</th><th>Component</th><th>Finding</th><th>Remediation</th></tr></thead><tbody>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">expiry</td><td>CN=www.digicert.com</td><td>Valid for 38 more days.</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-warning"><td class="icon-cell"><span style="color:#d29922">&#x26A0;</span></td><td class="mono">key_strength</td><td>CN=www.digicert.com</td><td>RSA-2048: meets minimum but 3072+ recommended.</td><td style="color:#8b949e">Consider RSA-3072 or ECDSA P-256 for better security margin.</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">signature</td><td>CN=www.digicert.com</td><td>Signature: SHA256WithRSAEncryption.</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">san</td><td>CN=www.digicert.com</td><td>SAN present: www.digicert.com, digicert.com</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-warning"><td class="icon-cell"><span style="color:#d29922">&#x26A0;</span></td><td class="mono">chain</td><td>Chain</td><td>Only leaf certificate received — intermediates may be missing.</td><td style="color:#8b949e">Configure the server to send the full certificate chain.</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">tls_version</td><td>TLS</td><td>Protocol: TLSv1.3 (optimal).</td><td style="color:#8b949e">&mdash;</td></tr>
+</tbody></table>
+<h4 style="margin:16px 0 8px">Certificate Chain</h4>
+<h5 style="color:#58a6ff;font-size:0.88rem;margin:12px 0 4px">Leaf</h5>
+<dl class="cert-grid">
+<dt>Subject</dt><dd class="mono">CN=www.digicert.com,O=DigiCert\, Inc.,L=Lehi,ST=Utah,C=US,2.5.4.5=5299537-0142,2.5.4.15=Private Organization,1.3.6.1.4.1.311.60.2.1.2=Utah,1.3.6.1.4.1.311.60.2.1.3=US</dd>
+<dt>Issuer</dt><dd class="mono">CN=DigiCert EV RSA CA G2,O=DigiCert Inc,C=US</dd>
+<dt>Not Before</dt><dd>2026-03-08T00:00:00+00:00</dd>
+<dt>Not After</dt><dd>2026-04-23T23:59:59+00:00</dd>
+<dt>Key</dt><dd>RSA (2048 bits)</dd>
+<dt>Signature</dt><dd class="mono">SHA256WithRSAEncryption</dd>
+<dt>Serial</dt><dd class="mono">94c14e8d1b9469a2e77fd1db464b9d0</dd>
+<dt>SAN</dt><dd>www.digicert.com, digicert.com</dd>
+</dl>
+<h4 style="margin:16px 0 8px">TLS Connection</h4>
+<dl class="cert-grid">
+<dt>Protocol</dt><dd>TLSv1.3</dd>
+<dt>Cipher Suite</dt><dd class="mono">TLS_AES_128_GCM_SHA256</dd>
+<dt>Key Exchange</dt><dd>ECDHE (TLS 1.3 default)</dd>
+<dt>Peer Address</dt><dd class="mono">45.60.121.229</dd>
+</dl>
+</div></details>
+<details class="host-detail-block" data-host="github.com:443"><summary class="host-summary"><span class="mono">github.com:443</span> <span class="pill" style="color:#d29922;border:1px solid #d29922">WARNING</span> <span class="mono" style="color:#f85149;margin-left:8px">PQC: 2/10 F</span> <span style="color:#8b949e;font-size:0.82rem;margin-left:8px">TLSv1.3 &middot; TLS_AES_128_GCM_SHA256</span></summary><div class="host-details">
+<h4 style="margin-bottom:8px">Audit Findings</h4>
+<table style="font-size:0.82rem"><thead><tr><th style="width:30px"></th><th>Check</th><th>Component</th><th>Finding</th><th>Remediation</th></tr></thead><tbody>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">expiry</td><td>CN=github.com</td><td>Valid for 79 more days.</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">key_strength</td><td>CN=github.com</td><td>EC-secp256r1: good key type.</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">signature</td><td>CN=github.com</td><td>Signature: ECDSA-with-SHA256.</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">san</td><td>CN=github.com</td><td>SAN present: github.com, www.github.com</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-warning"><td class="icon-cell"><span style="color:#d29922">&#x26A0;</span></td><td class="mono">chain</td><td>Chain</td><td>Only leaf certificate received — intermediates may be missing.</td><td style="color:#8b949e">Configure the server to send the full certificate chain.</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">tls_version</td><td>TLS</td><td>Protocol: TLSv1.3 (optimal).</td><td style="color:#8b949e">&mdash;</td></tr>
+</tbody></table>
+<h4 style="margin:16px 0 8px">Certificate Chain</h4>
+<h5 style="color:#58a6ff;font-size:0.88rem;margin:12px 0 4px">Leaf</h5>
+<dl class="cert-grid">
+<dt>Subject</dt><dd class="mono">CN=github.com</dd>
+<dt>Issuer</dt><dd class="mono">CN=Sectigo Public Server Authentication CA DV E36,O=Sectigo Limited,C=GB</dd>
+<dt>Not Before</dt><dd>2026-03-06T00:00:00+00:00</dd>
+<dt>Not After</dt><dd>2026-06-03T23:59:59+00:00</dd>
+<dt>Key</dt><dd>EC-secp256r1 (256 bits)</dd>
+<dt>Signature</dt><dd class="mono">ECDSA-with-SHA256</dd>
+<dt>Serial</dt><dd class="mono">1dc289c1eadafb04e9d1cf53d5d72253</dd>
+<dt>SAN</dt><dd>github.com, www.github.com</dd>
+</dl>
+<h4 style="margin:16px 0 8px">TLS Connection</h4>
+<dl class="cert-grid">
+<dt>Protocol</dt><dd>TLSv1.3</dd>
+<dt>Cipher Suite</dt><dd class="mono">TLS_AES_128_GCM_SHA256</dd>
+<dt>Key Exchange</dt><dd>ECDHE (TLS 1.3 default)</dd>
+<dt>Peer Address</dt><dd class="mono">140.82.112.4</dd>
+</dl>
+</div></details>
+<details class="host-detail-block" data-host="expired.badssl.com:443"><summary class="host-summary"><span class="mono">expired.badssl.com:443</span> <span class="pill" style="color:#f85149;border:1px solid #f85149">CRITICAL</span> <span class="mono" style="color:#f85149;margin-left:8px">PQC: 1/10 F</span> <span style="color:#8b949e;font-size:0.82rem;margin-left:8px">TLSv1.2 &middot; ECDHE-RSA-AES128-GCM-SHA256</span></summary><div class="host-details">
+<h4 style="margin-bottom:8px">Audit Findings</h4>
+<table style="font-size:0.82rem"><thead><tr><th style="width:30px"></th><th>Check</th><th>Component</th><th>Finding</th><th>Remediation</th></tr></thead><tbody>
+<tr class="row-critical"><td class="icon-cell"><span style="color:#f85149">&#x2716;</span></td><td class="mono">expiry</td><td>CN=*.badssl.com</td><td>EXPIRED on 2015-04-12T23:59:59+00:00.</td><td style="color:#8b949e">Renew certificate immediately.</td></tr>
+<tr class="row-warning"><td class="icon-cell"><span style="color:#d29922">&#x26A0;</span></td><td class="mono">key_strength</td><td>CN=*.badssl.com</td><td>RSA-2048: meets minimum but 3072+ recommended.</td><td style="color:#8b949e">Consider RSA-3072 or ECDSA P-256 for better security margin.</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">signature</td><td>CN=*.badssl.com</td><td>Signature: SHA256WithRSAEncryption.</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-info"><td class="icon-cell"><span style="color:#58a6ff">&#x2139;</span></td><td class="mono">san</td><td>CN=*.badssl.com</td><td>Wildcard SAN(s): *.badssl.com</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">san</td><td>CN=*.badssl.com</td><td>SAN present: *.badssl.com, badssl.com</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-warning"><td class="icon-cell"><span style="color:#d29922">&#x26A0;</span></td><td class="mono">chain</td><td>Chain</td><td>Only leaf certificate received — intermediates may be missing.</td><td style="color:#8b949e">Configure the server to send the full certificate chain.</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">tls_version</td><td>TLS</td><td>Protocol: TLSv1.2 (acceptable, TLS 1.3 preferred).</td><td style="color:#8b949e">&mdash;</td></tr>
+</tbody></table>
+<h4 style="margin:16px 0 8px">Certificate Chain</h4>
+<h5 style="color:#58a6ff;font-size:0.88rem;margin:12px 0 4px">Leaf</h5>
+<dl class="cert-grid">
+<dt>Subject</dt><dd class="mono">CN=*.badssl.com,OU=PositiveSSL Wildcard,OU=Domain Control Validated</dd>
+<dt>Issuer</dt><dd class="mono">CN=COMODO RSA Domain Validation Secure Server CA,O=COMODO CA Limited,L=Salford,ST=Greater Manchester,C=GB</dd>
+<dt>Not Before</dt><dd>2015-04-09T00:00:00+00:00</dd>
+<dt>Not After</dt><dd>2015-04-12T23:59:59+00:00</dd>
+<dt>Key</dt><dd>RSA (2048 bits)</dd>
+<dt>Signature</dt><dd class="mono">SHA256WithRSAEncryption</dd>
+<dt>Serial</dt><dd class="mono">4ae79549fa9abe3f100f17a478e16909</dd>
+<dt>SAN</dt><dd>*.badssl.com, badssl.com</dd>
+</dl>
+<h4 style="margin:16px 0 8px">TLS Connection</h4>
+<dl class="cert-grid">
+<dt>Protocol</dt><dd>TLSv1.2</dd>
+<dt>Cipher Suite</dt><dd class="mono">ECDHE-RSA-AES128-GCM-SHA256</dd>
+<dt>Key Exchange</dt><dd>ECDHE</dd>
+<dt>Peer Address</dt><dd class="mono">104.154.89.105</dd>
+</dl>
+</div></details>
+<details class="host-detail-block" data-host="self-signed.badssl.com:443"><summary class="host-summary"><span class="mono">self-signed.badssl.com:443</span> <span class="pill" style="color:#d29922;border:1px solid #d29922">WARNING</span> <span class="mono" style="color:#f85149;margin-left:8px">PQC: 1/10 F</span> <span style="color:#8b949e;font-size:0.82rem;margin-left:8px">TLSv1.2 &middot; ECDHE-RSA-AES128-GCM-SHA256</span></summary><div class="host-details">
+<h4 style="margin-bottom:8px">Audit Findings</h4>
+<table style="font-size:0.82rem"><thead><tr><th style="width:30px"></th><th>Check</th><th>Component</th><th>Finding</th><th>Remediation</th></tr></thead><tbody>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">expiry</td><td>CN=*.badssl.com</td><td>Valid for 723 more days.</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-warning"><td class="icon-cell"><span style="color:#d29922">&#x26A0;</span></td><td class="mono">key_strength</td><td>CN=*.badssl.com</td><td>RSA-2048: meets minimum but 3072+ recommended.</td><td style="color:#8b949e">Consider RSA-3072 or ECDSA P-256 for better security margin.</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">signature</td><td>CN=*.badssl.com</td><td>Signature: SHA256WithRSAEncryption.</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-info"><td class="icon-cell"><span style="color:#58a6ff">&#x2139;</span></td><td class="mono">san</td><td>CN=*.badssl.com</td><td>Wildcard SAN(s): *.badssl.com</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">san</td><td>CN=*.badssl.com</td><td>SAN present: *.badssl.com, badssl.com</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-warning"><td class="icon-cell"><span style="color:#d29922">&#x26A0;</span></td><td class="mono">self_signed</td><td>CN=*.badssl.com</td><td>Leaf certificate is self-signed.</td><td style="color:#8b949e">Use a certificate from a trusted CA.</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">tls_version</td><td>TLS</td><td>Protocol: TLSv1.2 (acceptable, TLS 1.3 preferred).</td><td style="color:#8b949e">&mdash;</td></tr>
+</tbody></table>
+<h4 style="margin:16px 0 8px">Certificate Chain</h4>
+<h5 style="color:#58a6ff;font-size:0.88rem;margin:12px 0 4px">Leaf</h5>
+<dl class="cert-grid">
+<dt>Subject</dt><dd class="mono">CN=*.badssl.com,O=BadSSL,L=San Francisco,ST=California,C=US</dd>
+<dt>Issuer</dt><dd class="mono">CN=*.badssl.com,O=BadSSL,L=San Francisco,ST=California,C=US</dd>
+<dt>Not Before</dt><dd>2026-03-10T21:01:30+00:00</dd>
+<dt>Not After</dt><dd>2028-03-09T21:01:30+00:00</dd>
+<dt>Key</dt><dd>RSA (2048 bits)</dd>
+<dt>Signature</dt><dd class="mono">SHA256WithRSAEncryption</dd>
+<dt>Serial</dt><dd class="mono">cf4a9fd06989169c</dd>
+<dt>SAN</dt><dd>*.badssl.com, badssl.com</dd>
+</dl>
+<h4 style="margin:16px 0 8px">TLS Connection</h4>
+<dl class="cert-grid">
+<dt>Protocol</dt><dd>TLSv1.2</dd>
+<dt>Cipher Suite</dt><dd class="mono">ECDHE-RSA-AES128-GCM-SHA256</dd>
+<dt>Key Exchange</dt><dd>ECDHE</dd>
+<dt>Peer Address</dt><dd class="mono">104.154.89.105</dd>
+</dl>
+</div></details>
+<details class="host-detail-block" data-host="revoked.badssl.com:443"><summary class="host-summary"><span class="mono">revoked.badssl.com:443</span> <span class="pill" style="color:#d29922;border:1px solid #d29922">WARNING</span> <span class="mono" style="color:#f85149;margin-left:8px">PQC: 1/10 F</span> <span style="color:#8b949e;font-size:0.82rem;margin-left:8px">TLSv1.2 &middot; ECDHE-ECDSA-AES128-GCM-SHA256</span></summary><div class="host-details">
+<h4 style="margin-bottom:8px">Audit Findings</h4>
+<table style="font-size:0.82rem"><thead><tr><th style="width:30px"></th><th>Check</th><th>Component</th><th>Finding</th><th>Remediation</th></tr></thead><tbody>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">expiry</td><td>CN=revoked.badssl.com</td><td>Valid for 83 more days.</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">key_strength</td><td>CN=revoked.badssl.com</td><td>EC-secp256r1: good key type.</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">signature</td><td>CN=revoked.badssl.com</td><td>Signature: ECDSA-with-SHA384.</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">san</td><td>CN=revoked.badssl.com</td><td>SAN present: revoked.badssl.com</td><td style="color:#8b949e">&mdash;</td></tr>
+<tr class="row-warning"><td class="icon-cell"><span style="color:#d29922">&#x26A0;</span></td><td class="mono">chain</td><td>Chain</td><td>Only leaf certificate received — intermediates may be missing.</td><td style="color:#8b949e">Configure the server to send the full certificate chain.</td></tr>
+<tr class="row-pass"><td class="icon-cell"><span style="color:#3fb950">&#x2714;</span></td><td class="mono">tls_version</td><td>TLS</td><td>Protocol: TLSv1.2 (acceptable, TLS 1.3 preferred).</td><td style="color:#8b949e">&mdash;</td></tr>
+</tbody></table>
+<h4 style="margin:16px 0 8px">Certificate Chain</h4>
+<h5 style="color:#58a6ff;font-size:0.88rem;margin:12px 0 4px">Leaf</h5>
+<dl class="cert-grid">
+<dt>Subject</dt><dd class="mono">CN=revoked.badssl.com</dd>
+<dt>Issuer</dt><dd class="mono">CN=E8,O=Let&#x27;s Encrypt,C=US</dd>
+<dt>Not Before</dt><dd>2026-03-10T20:02:52+00:00</dd>
+<dt>Not After</dt><dd>2026-06-08T20:02:51+00:00</dd>
+<dt>Key</dt><dd>EC-secp256r1 (256 bits)</dd>
+<dt>Signature</dt><dd class="mono">ECDSA-with-SHA384</dd>
+<dt>Serial</dt><dd class="mono">65b2746e201864c96d36c0f98c886fdb2f5</dd>
+<dt>SAN</dt><dd>revoked.badssl.com</dd>
+</dl>
+<h4 style="margin:16px 0 8px">TLS Connection</h4>
+<dl class="cert-grid">
+<dt>Protocol</dt><dd>TLSv1.2</dd>
+<dt>Cipher Suite</dt><dd class="mono">ECDHE-ECDSA-AES128-GCM-SHA256</dd>
+<dt>Key Exchange</dt><dd>ECDHE</dd>
+<dt>Peer Address</dt><dd class="mono">104.154.89.105</dd>
+</dl>
+</div></details>
+</div></div>
+
+<div class="report-footer">
+  Generated by <strong>notafter v0.2.0</strong> &mdash; 2026-03-16 21:54:40 UTC
+</div>
+
+</div>
+<script>
+(function(){
+  /* Tab switching */
+  document.querySelectorAll('.tab-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); b.setAttribute('aria-selected','false'); });
+      document.querySelectorAll('.tab-content').forEach(function(c){ c.classList.remove('active'); });
+      btn.classList.add('active');
+      btn.setAttribute('aria-selected','true');
+      var target = document.getElementById('tab-' + btn.dataset.tab);
+      if(target) target.classList.add('active');
+    });
+  });
+
+  /* Host link click - toggle inline expand */
+  document.querySelectorAll('.host-link').forEach(function(link){
+    link.addEventListener('click', function(e){
+      e.preventDefault();
+      var hostId = link.dataset.target;
+      var expandRow = document.querySelector('.overview-expand[data-expand="' + hostId + '"]');
+      if(!expandRow) return;
+      var isOpen = expandRow.style.display !== 'none';
+      /* Close all expand rows */
+      document.querySelectorAll('.overview-expand').forEach(function(r){ r.style.display = 'none'; });
+      document.querySelectorAll('.host-expand-icon').forEach(function(ic){ ic.classList.remove('open'); });
+      if(!isOpen){
+        expandRow.style.display = '';
+        var icon = link.querySelector('.host-expand-icon');
+        if(icon) icon.classList.add('open');
+      }
+    });
+  });
+
+  /* Detail link - switch to hosts tab and open detail */
+  document.querySelectorAll('.detail-link').forEach(function(link){
+    link.addEventListener('click', function(e){
+      e.stopPropagation();
+      var hostId = link.dataset.target;
+      document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); b.setAttribute('aria-selected','false'); });
+      document.querySelectorAll('.tab-content').forEach(function(c){ c.classList.remove('active'); });
+      var hostsBtn = document.querySelector('.tab-btn[data-tab="hosts"]');
+      var hostsTab = document.getElementById('tab-hosts');
+      if(hostsBtn){ hostsBtn.classList.add('active'); hostsBtn.setAttribute('aria-selected','true'); }
+      if(hostsTab) hostsTab.classList.add('active');
+      document.querySelectorAll('.host-detail-block').forEach(function(d){
+        if(d.dataset.host === hostId){ d.open = true; d.scrollIntoView({behavior:'smooth', block:'start'}); }
+      });
+    });
+  });
+
+  /* Table filtering */
+  function setupFilter(inputId, tableId){
+    var input = document.getElementById(inputId);
+    var table = document.getElementById(tableId);
+    if(!input || !table) return;
+    input.addEventListener('input', function(){
+      var q = input.value.toLowerCase();
+      table.querySelectorAll('tbody tr').forEach(function(row){
+        if(row.classList.contains('overview-expand')){ row.style.display = 'none'; return; }
+        row.style.display = row.textContent.toLowerCase().indexOf(q) >= 0 ? '' : 'none';
+      });
+      /* Collapse all expand icons */
+      document.querySelectorAll('.host-expand-icon').forEach(function(ic){ ic.classList.remove('open'); });
+    });
+  }
+  setupFilter('overview-filter', 'overview-table');
+  setupFilter('inventory-filter', 'inventory-table');
+  setupFilter('cbom-filter', 'cbom-table');
+  /* Host details filter */
+  var hostsInput = document.getElementById('hosts-filter');
+  if(hostsInput){
+    hostsInput.addEventListener('input', function(){
+      var q = hostsInput.value.toLowerCase();
+      document.querySelectorAll('.host-detail-block').forEach(function(d){
+        d.style.display = d.textContent.toLowerCase().indexOf(q) >= 0 ? '' : 'none';
+      });
+    });
+  }
+
+  /* Table sorting */
+  document.querySelectorAll('th.sortable').forEach(function(th){
+    th.addEventListener('click', function(){
+      var table = th.closest('table');
+      var tbody = table.querySelector('tbody');
+      var rows = Array.from(tbody.querySelectorAll('tr:not(.overview-expand)'));
+      var col = parseInt(th.dataset.col);
+      var asc = th.dataset.sort !== 'asc';
+      th.dataset.sort = asc ? 'asc' : 'desc';
+      rows.sort(function(a,b){
+        var aText = (a.cells[col] || {textContent:''}).textContent.trim();
+        var bText = (b.cells[col] || {textContent:''}).textContent.trim();
+        var aNum = parseFloat(aText);
+        var bNum = parseFloat(bText);
+        if(!isNaN(aNum) && !isNaN(bNum)) return asc ? aNum - bNum : bNum - aNum;
+        return asc ? aText.localeCompare(bText) : bText.localeCompare(aText);
+      });
+      rows.forEach(function(r){
+        tbody.appendChild(r);
+        var hostCell = r.querySelector('.host-link');
+        if(hostCell){
+          var ex = tbody.querySelector('.overview-expand[data-expand="' + hostCell.dataset.target + '"]');
+          if(ex) tbody.appendChild(ex);
+        }
+      });
+    });
+  });
+})();
+
+/* Print: expand all details, restore after */
+window.addEventListener('beforeprint', function(){
+  document.querySelectorAll('details').forEach(function(d){
+    d._wasOpen = d.open; d.open = true;
+  });
+});
+window.addEventListener('afterprint', function(){
+  document.querySelectorAll('details').forEach(function(d){
+    if(d._wasOpen !== undefined) d.open = d._wasOpen;
+  });
+});
+
+/* CSV export - called from onclick */
+function exportCSV(tableId, prefix) {
+  var table = document.getElementById(tableId);
+  if (!table) return;
+  var csv = [];
+  var headers = [];
+  table.querySelectorAll('thead th').forEach(function(th) {
+    headers.push('"' + th.textContent.trim().replace(/"/g, '""') + '"');
+  });
+  csv.push(headers.join(','));
+  table.querySelectorAll('tbody tr').forEach(function(row) {
+    if (row.style.display === 'none') return;
+    var cells = [];
+    row.querySelectorAll('td').forEach(function(td) {
+      cells.push('"' + td.textContent.trim().replace(/"/g, '""') + '"');
+    });
+    csv.push(cells.join(','));
+  });
+  var blob = new Blob([csv.join('\n')], {type: 'text/csv;charset=utf-8'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  var d = new Date().toISOString().slice(0, 10);
+  a.download = prefix + '-' + d + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/* Theme toggle */
+function toggleTheme() {
+  var el = document.documentElement;
+  el.classList.toggle('light-theme');
+  var isLight = el.classList.contains('light-theme');
+  try { localStorage.setItem('notafter-theme', isLight ? 'light' : 'dark'); } catch(e) {}
+  var btn = document.querySelector('.theme-toggle');
+  if (btn) btn.textContent = isLight ? '\u263C' : '\u263E';
+}
+/* Sync toggle icon if theme was set in <head> */
+(function(){
+  var btn = document.querySelector('.theme-toggle');
+  if (btn && document.documentElement.classList.contains('light-theme')) btn.textContent = '\u263C';
+})();
+
+</script>
+</body>
+</html>

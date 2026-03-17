@@ -31,7 +31,7 @@ pytest --cov=notafter --cov-report=term-missing
 pytest tests/test_pqc_scorer.py -v
 ```
 
-Tests live in `tests/`. The test suite covers PQC OID lookups, scoring logic, CBOM generation, check engine findings, and fleet target parsing.
+Tests live in `tests/`. The test suite covers PQC OID lookups, scoring logic, CBOM generation, check engine findings, fleet target parsing, and dashboard rendering.
 
 ## Code style
 
@@ -65,13 +65,17 @@ notafter/
   pqc/scorer.py       # PQC scoring model
   revocation/checker.py  # OCSP, CRL, CT
   cbom/generator.py   # CycloneDX CBOM
-  output/terminal.py  # Rich terminal output
+  diff.py                # Scan diff engine
+  output/terminal.py     # Rich terminal output
+  output/dashboard.py    # Interactive HTML dashboard
 tests/
   test_pqc_oids.py
   test_pqc_scorer.py
   test_cbom.py
   test_checks.py
   test_fleet.py
+  test_dashboard.py
+  test_diff.py
 ```
 
 ## Pull request process

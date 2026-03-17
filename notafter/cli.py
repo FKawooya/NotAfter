@@ -64,7 +64,7 @@ def cli():
 @cli.command()
 @click.argument("target")
 @click.option("--file", "is_file", is_flag=True, help="Treat TARGET as a file path instead of a host.")
-@click.option("--port", "-p", default=443, type=int, help="TLS port (default: 443).")
+@click.option("--port", "-p", default=443, type=click.IntRange(1, 65535), help="TLS port (default: 443).")
 @click.option("--warn-days", "-w", default=30, type=int, help="Days before expiry to warn (default: 30).")
 @click.option("--json-output", "--json", "json_out", is_flag=True, help="Output JSON instead of terminal.")
 @click.option("--html", "html_out", is_flag=True, help="Output self-contained HTML report.")
@@ -169,8 +169,8 @@ def scan(target, is_file, port, warn_days, json_out, html_out, cbom, no_revocati
 
 @cli.command()
 @click.argument("source")
-@click.option("--port", "-p", default=443, type=int, help="Default TLS port.")
-@click.option("--concurrency", "-c", default=50, type=int, help="Max concurrent connections.")
+@click.option("--port", "-p", default=443, type=click.IntRange(1, 65535), help="Default TLS port.")
+@click.option("--concurrency", "-c", default=50, type=click.IntRange(1, 500), help="Max concurrent connections.")
 @click.option("--timeout", "-t", default=10.0, type=float, help="Per-host timeout.")
 @click.option("--warn-days", "-w", default=30, type=int, help="Days before expiry to warn.")
 @click.option("--json-output", "--json", "json_out", is_flag=True, help="Output JSON.")
@@ -272,6 +272,8 @@ def fleet(source, port, concurrency, timeout, warn_days, json_out, html_out, cbo
                 for key, report in zip(keys, reports):
                     if isinstance(report, RevocationReport):
                         revocation_map[key] = report
+                    elif isinstance(report, Exception):
+                        progress_console.print(f"  [yellow]Revocation check failed for {key}: {report}[/yellow]")
             progress_console.print("[cyan]Checking revocation status...[/cyan]")
             asyncio.run(_check_all_revocation())
 
@@ -330,12 +332,12 @@ def _print_fleet_summary(fleet_data: list[dict], total_critical: int, total_warn
         border_style="dim",
         title_style="bold cyan",
     )
-    table.add_column("Host", width=30)
-    table.add_column("TLS", width=8)
+    table.add_column("Host", max_width=35, overflow="ellipsis", no_wrap=True)
+    table.add_column("TLS", width=8, no_wrap=True)
     table.add_column("Crit", width=5, justify="center")
     table.add_column("Warn", width=5, justify="center")
-    table.add_column("PQC", width=6, justify="center")
-    table.add_column("Status", width=10)
+    table.add_column("PQC", width=10, justify="center", no_wrap=True)
+    table.add_column("Status", width=10, no_wrap=True)
 
     for entry in fleet_data:
         if entry.get("error"):
@@ -459,3 +461,43 @@ def _build_json(scan, audit, pqc_report, revocation_report) -> dict:
         }
 
     return output
+
+
+@cli.command()
+@click.argument("baseline", type=click.Path(exists=True))
+@click.argument("current", type=click.Path(exists=True, allow_dash=True))
+@click.option("--json-output", "--json", "json_out", is_flag=True, help="Output diff as JSON.")
+def diff(baseline, current, json_out):
+    """Compare two NotAfter JSON scan outputs.
+
+    BASELINE and CURRENT are JSON files from `notafter scan --json` or
+    `notafter fleet --json`. Use `-` as CURRENT to read from stdin.
+
+    Exit code 0 means no changes, 1 means changes detected.
+    """
+    from notafter.diff import diff_reports, diff_to_json
+    from notafter.output.terminal import print_diff
+
+    try:
+        with click.open_file(baseline, "r") as f:
+            baseline_data = json.load(f)
+    except json.JSONDecodeError as e:
+        raise click.ClickException(f"Invalid JSON in baseline file: {e}")
+
+    try:
+        with click.open_file(current, "r") as f:
+            current_data = json.load(f)
+    except json.JSONDecodeError as e:
+        raise click.ClickException(f"Invalid JSON in current file: {e}")
+
+    try:
+        report = diff_reports(baseline_data, current_data)
+    except ValueError as e:
+        raise click.ClickException(str(e))
+
+    if json_out:
+        click.echo(json.dumps(diff_to_json(report), indent=2, default=str))
+    else:
+        print_diff(report)
+
+    sys.exit(1 if report.has_changes else 0)
